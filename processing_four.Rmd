@@ -1,0 +1,113 @@
+---
+title: "processing_four"
+author: "Christopher"
+date: "2026-03-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This loads the packages:
+
+```{r}
+library(tidyverse)
+```
+
+This loads the datasets:
+
+```{r, echo=FALSE}
+all_familiarity_ratings <- read.csv("data/interim_data/familiarity_all_ratings.csv")
+all_other_ratings <- read.csv("data/interim_data/others_all_ratings.csv")
+not_stopwords <- read.csv("data/interim_data/these_are_not_stopwords.csv")
+clean_data <- read.csv("data/interim_data/clean_data.csv")
+new_surprisal_entropy_scores <- read.csv("data/raw_data/vanilla_2words_surprisal_entropy_10Texts_02_2026.csv")
+new_frequency_scores <- read.csv("data/raw_data/EXNAT_B_word_freqs.csv", sep = ";")
+```
+
+This performs a left_join:
+
+```{r}
+not_stopwords <- not_stopwords %>% select(word_single)
+
+data_final <- not_stopwords %>% left_join(all_familiarity_ratings, by = c("word_single" = "Word"))
+data_final <- data_final %>% left_join(all_other_ratings, by = c("word_single" = "Word"))
+
+#. instead of ,:
+
+data_final$GPT_FAM_ft <- gsub(",", ".", data_final$GPT_FAM_ft)
+data_final$GPT_concr <- gsub(",", ".", data_final$GPT_concr)
+data_final$GPT_val <- gsub(",", ".", data_final$GPT_val)
+data_final$GPT_arou <- gsub(",", ".", data_final$GPT_arou)
+data_final$GPT_AoA_ft <- gsub(",", ".", data_final$GPT_AoA_ft)
+
+## This code removes the other ratings for the rows where GPT_FAM_ft is estimated to be below 3.5.
+## This is done based on the recommendation by Conde et al. (2026).
+data_final <- data_final %>% mutate(GPT_concr = ifelse(GPT_FAM_ft < 3.5, NA_real_ , GPT_concr))
+data_final <- data_final %>% mutate(GPT_val = ifelse(GPT_FAM_ft < 3.5, NA_real_ , GPT_val))
+data_final <- data_final %>% mutate(GPT_arou = ifelse(GPT_FAM_ft < 3.5, NA_real_ , GPT_arou))
+data_final <- data_final %>% mutate(GPT_AoA_ft = ifelse(GPT_FAM_ft < 3.5, NA_real_ , GPT_AoA_ft))
+```
+
+Now this data will be joined onto the clean_data dataframe:
+
+```{r}
+data_final <- clean_data %>% left_join(data_final, by = c("word_single"))
+
+dim(data_final) # 289969
+dim(clean_data) # 289969
+
+## Now to double check i want to create a dataframe that contains all the words for which GPT_FAM is NA in df:
+check_df <- data_final %>% select("word_single", "GPT_FAM_ft")
+check_df <- check_df %>% distinct(word_single, GPT_FAM_ft)
+check_df <- check_df %>% filter(is.na(GPT_FAM_ft))
+dim(check_df) ## 174; This resembles the nltk_stopwords list perfectly.
+```
+
+Now we want to remove all the rows in clean_data that contain the n-back conditions, since we do not need those right now:
+
+```{r}
+## This removes all rows which contain 1back or 2back in the cognitive_load column.
+## This reduces the dataframe down to 100579 rows.
+data_final <- data_final %>% filter(!cognitive_load %in% c("1back", "2back"))
+```
+
+Now we want to add the new suprisal, entropy and frequency (both normal and zipf) scores:
+
+```{r}
+## First i join the columns of both dataframes together.
+## This is important, since the new_frequency_scores df doesnt have both text adn trial number as column, only text_nr, so a left_join based on text and word f.e. coule be problematic.
+new_scores <- cbind(new_surprisal_entropy_scores, new_frequency_scores)
+
+new_scores <- new_scores %>% select(1, trial_nr, word_no_punct, surprisal_2_words_context, entropy_2_words_context, frequency, zipf_frequency)
+
+## This restirct the dataset from its original 3000 rows to 2700 rows, therefore cutting off the unncessary 10th text:
+new_scores <- new_scores %>% slice(1:2700)
+
+## This joins the two scores based on trial and text nrs onto data_final:
+data_final <- data_final %>% left_join(new_scores, by = c("text_nr", "trial_nr"))
+
+dim(data_final) #100579 
+```
+
+How many words are left with a familiarity or other rating?
+
+```{r}
+df_test <- data_final %>% distinct(word_single, .keep_all = TRUE) %>% select(word_single, GPT_FAM_ft, GPT_concr, GPT_val, GPT_arou, GPT_AoA_ft)
+
+df_amount_of_fam_NA <- df_test %>% filter(is.na(GPT_FAM_ft))
+df_amount_of_other_NA <- df_test %>% filter(is.na(GPT_concr))
+df_another_test <- df_test %>% filter(GPT_FAM_ft < 3.5)
+
+dim(df_amount_of_fam_NA) ## 174 (This is exactly the same as the stopword list from nltk, as it should be)
+dim(df_amount_of_other_NA) ## 221 (This is larger than the nltk stopword list since I also removed those ratings for rows where GPT_FAM is below 3.5)
+dim(df_another_test) ##47; makes sense because: 174 (stopwords) + 47 (GPT_FAM_ft < 3.5) = 221 (missing concr etc.)
+dim(df_test) #1236 individual words are found in the nine texts.
+```
+
+This creates a csv file containing the data_final dataframe:
+
+```{r}
+write.csv(data_final, "data/final_data/final.data.csv")
+```

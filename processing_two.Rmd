@@ -1,0 +1,321 @@
+---
+title: "processing_two"
+author: "Christopher"
+date: "2026-03-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This loads the required packages:
+
+```{r}
+library(tidyverse)
+```
+
+This loads the required data:
+
+```{r, echo=FALSE}
+clean_data <- read.csv("data/interim_data/clean_data.csv", sep = ";")
+
+df_conde_fam <- read.csv("data/raw_data/conde_fam.csv", sep = ";")
+df_conde_other <- read.csv("data/raw_data/conde_other.csv", sep = ";")
+
+df_fam_generated <- read.csv("data/interim_data/fam_generated.csv", sep = ";")
+df_aoa_generated <- read.csv("data/interim_data/aoa_generated.csv", sep = ";")
+df_concr_generated <- read.csv("data/interim_data/concr_generated.csv", sep = ",")
+df_val_generated <- read.csv("data/interim_data/val_generated.csv", sep = ",")
+df_arou_generated <- read.csv("data/interim_data/arou_generated.csv", sep = ",")
+## not needed rn:
+all_stopwords <- read.csv("schon_stopwords.csv")
+without_stopwords <- read.csv("keine_stopwords.csv")
+```
+
+This code organises the familiarity and aoa ratings:
+
+```{r}
+df_fam_generated <- df_fam_generated %>% select(word, weighted_sum)
+
+df_fam_generated <- df_fam_generated %>% rename(Word = word)
+df_fam_generated <- df_fam_generated %>% rename(GPT_FAM = weighted_sum)
+
+df_aoa_generated <- df_aoa_generated %>% select(word, aoa)
+
+df_aoa_generated <- df_aoa_generated %>% rename(Word = word)
+df_aoa_generated <- df_aoa_generated %>% rename(GPT_AoA_ft = aoa)
+```
+
+This code extracts the weighted sums from the concreteness esitmates:
+
+```{r}
+### This reduces the dataframe to only the required columns: ##select for columns, distinct for rows
+df_concr_generated <- df_concr_generated %>% distinct(custom_id, response.body.choices.0.logprobs.content.0.top_logprobs.0.token, response.body.choices.0.logprobs.content.0.top_logprobs.0.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.1.token, response.body.choices.0.logprobs.content.0.top_logprobs.1.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.2.token, response.body.choices.0.logprobs.content.0.top_logprobs.2.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.3.token, response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.4.token, response.body.choices.0.logprobs.content.0.top_logprobs.4.logprob)
+
+
+### This renames the columns of the dataframe:
+df_concr_generated <- df_concr_generated %>% rename(word_nr = custom_id, token_1 = response.body.choices.0.logprobs.content.0.top_logprobs.0.token, logprob_1 = response.body.choices.0.logprobs.content.0.top_logprobs.0.logprob, token_2 = response.body.choices.0.logprobs.content.0.top_logprobs.1.token, logprob_2 = response.body.choices.0.logprobs.content.0.top_logprobs.1.logprob, token_3 = response.body.choices.0.logprobs.content.0.top_logprobs.2.token, logprob_3 = response.body.choices.0.logprobs.content.0.top_logprobs.2.logprob, token_4 = response.body.choices.0.logprobs.content.0.top_logprobs.3.token, logprob_4 = response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, token_5 = response.body.choices.0.logprobs.content.0.top_logprobs.4.token, logprob_5 = response.body.choices.0.logprobs.content.0.top_logprobs.4.logprob)
+
+
+### This generates the probabilities for a token based of the logprobability:
+df_concr_generated$prob_1 <- exp(df_concr_generated$logprob_1)
+df_concr_generated$prob_2 <- exp(df_concr_generated$logprob_2)
+df_concr_generated$prob_3 <- exp(df_concr_generated$logprob_3)
+df_concr_generated$prob_4 <- exp(df_concr_generated$logprob_4)
+df_concr_generated$prob_5 <- exp(df_concr_generated$logprob_5)
+
+
+### This code makes all token-columns to be characters. This is necessary for the next step.
+df_concr_generated$token_1 <- as.character(df_concr_generated$token_1)
+df_concr_generated$token_2 <- as.character(df_concr_generated$token_2)
+df_concr_generated$token_3 <- as.character(df_concr_generated$token_3)
+df_concr_generated$token_4 <- as.character(df_concr_generated$token_4)
+df_concr_generated$token_5 <- as.character(df_concr_generated$token_5)
+
+
+### This will clean the token_columns, since often they do not contain strictly numbers from 1-7 but also written numbers, or number from different languages. Sometimes even numbers outside of the range of 1-7, or words like "Neutral".
+df_concr_generated <- df_concr_generated %>% mutate(token_3 = recode(token_3, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "NA", "8" = "NA", "۱" = "1", "６" = "6"))
+df_concr_generated <- df_concr_generated %>% mutate(token_4 = recode(token_4, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "0", "8" = "0", "۱" = "1", "６" = "6"))
+df_concr_generated <- df_concr_generated %>% mutate(token_5 = recode(token_5, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "0", "8" = "0", "۱" = "1", "６" = "6", "７" = "7"))
+
+df_concr_generated <- df_concr_generated %>% mutate(
+    token_4 = na_if(token_4, "0"))
+df_concr_generated <- df_concr_generated %>% mutate(
+    token_5 = na_if(token_5, "0"))
+
+## This code checks which values are found in a given column (best would be only 1-7):
+unique(df_concr_generated$token_1)
+unique(df_concr_generated$token_2)
+unique(df_concr_generated$token_3)
+unique(df_concr_generated$token_4)
+unique(df_concr_generated$token_5)
+
+### This code makes all columns numeric:
+df_concr_generated$token_1 <- as.numeric(df_concr_generated$token_1) #=>Token-Columns
+df_concr_generated$token_2 <- as.numeric(df_concr_generated$token_2)
+df_concr_generated$token_3 <- as.numeric(df_concr_generated$token_3)
+df_concr_generated$token_4 <- as.numeric(df_concr_generated$token_4)
+df_concr_generated$token_5 <- as.numeric(df_concr_generated$token_5)
+df_concr_generated$prob_1 <- as.numeric(df_concr_generated$prob_1) #=>Probability-columns
+df_concr_generated$prob_2 <- as.numeric(df_concr_generated$prob_2)
+df_concr_generated$prob_3 <- as.numeric(df_concr_generated$prob_3)
+df_concr_generated$prob_4 <- as.numeric(df_concr_generated$prob_4)
+df_concr_generated$prob_5 <- as.numeric(df_concr_generated$prob_5)
+
+### Now we will generate the weighted_sum based on the tokens and their probabilities:
+
+concreteness <- function(df_concr_generated) {
+  rowSums(cbind(
+    df_concr_generated$token_1 * df_concr_generated$prob_1,
+    df_concr_generated$token_2 * df_concr_generated$prob_2,
+    df_concr_generated$token_3 * df_concr_generated$prob_3,
+    df_concr_generated$token_4 * df_concr_generated$prob_4,
+    df_concr_generated$token_5 * df_concr_generated$prob_5
+  ), na.rm = TRUE)}
+
+### This code will add the output as a column:
+df_concr_generated$GPT_concr <- concreteness(df_concr_generated)
+
+df_concr_generated <- df_concr_generated %>% select(word_nr, GPT_concr)
+```
+
+This code extracts the weighted sums from the concreteness esitmates:
+
+```{r}
+### This reduces the dataframe to only the required columns: ##select for columns, distinct for rows
+df_val_generated <- df_val_generated %>% distinct(custom_id, response.body.choices.0.logprobs.content.0.top_logprobs.0.token, response.body.choices.0.logprobs.content.0.top_logprobs.0.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.1.token, response.body.choices.0.logprobs.content.0.top_logprobs.1.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.2.token, response.body.choices.0.logprobs.content.0.top_logprobs.2.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.3.token, response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.4.token, response.body.choices.0.logprobs.content.0.top_logprobs.4.logprob)
+
+
+### This renames the columns of the dataframe:
+df_val_generated <- df_val_generated %>% rename(word_nr = custom_id, token_1 = response.body.choices.0.logprobs.content.0.top_logprobs.0.token, logprob_1 = response.body.choices.0.logprobs.content.0.top_logprobs.0.logprob, token_2 = response.body.choices.0.logprobs.content.0.top_logprobs.1.token, logprob_2 = response.body.choices.0.logprobs.content.0.top_logprobs.1.logprob, token_3 = response.body.choices.0.logprobs.content.0.top_logprobs.2.token, logprob_3 = response.body.choices.0.logprobs.content.0.top_logprobs.2.logprob, token_4 = response.body.choices.0.logprobs.content.0.top_logprobs.3.token, logprob_4 = response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, token_5 = response.body.choices.0.logprobs.content.0.top_logprobs.4.token, logprob_5 = response.body.choices.0.logprobs.content.0.top_logprobs.4.logprob)
+
+
+### This generates the probabilities for a token based of the logprobability:
+df_val_generated$prob_1 <- exp(df_val_generated$logprob_1)
+df_val_generated$prob_2 <- exp(df_val_generated$logprob_2)
+df_val_generated$prob_3 <- exp(df_val_generated$logprob_3)
+df_val_generated$prob_4 <- exp(df_val_generated$logprob_4)
+df_val_generated$prob_5 <- exp(df_val_generated$logprob_5)
+
+
+### This code makes all token-columns to be characters. This is necessary for the next step.
+df_val_generated$token_1 <- as.character(df_val_generated$token_1)
+df_val_generated$token_2 <- as.character(df_val_generated$token_2)
+df_val_generated$token_3 <- as.character(df_val_generated$token_3)
+df_val_generated$token_4 <- as.character(df_val_generated$token_4)
+df_val_generated$token_5 <- as.character(df_val_generated$token_5)
+
+
+### This will clean the token_columns, since often they do not contain strictly numbers from 1-7 but also written numbers, or number from different languages. Sometimes even numbers outside of the range of 1-7, or words like "Neutral".
+df_val_generated <- df_val_generated %>% mutate(token_3 = recode(token_3, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "NA", "8" = "NA", "۱" = "1", "６" = "6"))
+df_val_generated <- df_val_generated %>% mutate(token_4 = recode(token_4, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "0", "8" = "0", "۱" = "1", "６" = "6", " four" = "4"))
+df_val_generated <- df_val_generated %>% mutate(token_5 = recode(token_5, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "0", "8" = "0", "۱" = "1", "６" = "6", "７" = "7", " four" = "4", " seventh" = "7", " vier" = "4", " sixth" = "6", "Neutral" = "0", "₂" = "2", "۳" = "3"))
+
+df_val_generated <- df_val_generated %>% mutate(
+    token_4 = na_if(token_4, "0"))
+df_val_generated <- df_val_generated %>% mutate(
+    token_5 = na_if(token_5, "0"))
+
+## This code checks which values are found in a given column (best would be only 1-7):
+unique(df_val_generated$token_1)
+unique(df_val_generated$token_2)
+unique(df_val_generated$token_3)
+unique(df_val_generated$token_4)
+unique(df_val_generated$token_5)
+
+### This code makes all columns numeric:
+df_val_generated$token_1 <- as.numeric(df_val_generated$token_1) #=>Token-Columns
+df_val_generated$token_2 <- as.numeric(df_val_generated$token_2)
+df_val_generated$token_3 <- as.numeric(df_val_generated$token_3)
+df_val_generated$token_4 <- as.numeric(df_val_generated$token_4)
+df_val_generated$token_5 <- as.numeric(df_val_generated$token_5)
+df_val_generated$prob_1 <- as.numeric(df_val_generated$prob_1) #=>Probability-columns
+df_val_generated$prob_2 <- as.numeric(df_val_generated$prob_2)
+df_val_generated$prob_3 <- as.numeric(df_val_generated$prob_3)
+df_val_generated$prob_4 <- as.numeric(df_val_generated$prob_4)
+df_val_generated$prob_5 <- as.numeric(df_val_generated$prob_5)
+
+### Now we will generate the weighted_sum based on the tokens and their probabilities:
+
+valence <- function(df_val_generated) {
+  rowSums(cbind(
+    df_val_generated$token_1 * df_val_generated$prob_1,
+    df_val_generated$token_2 * df_val_generated$prob_2,
+    df_val_generated$token_3 * df_val_generated$prob_3,
+    df_val_generated$token_4 * df_val_generated$prob_4,
+    df_val_generated$token_5 * df_val_generated$prob_5
+  ), na.rm = TRUE)}
+
+### This code will add the output as a column:
+df_val_generated$GPT_val <- valence(df_val_generated)
+
+df_val_generated <- df_val_generated %>% select(word_nr, GPT_val)
+
+```
+
+Arousal:
+
+```{r}
+### This reduces the dataframe to only the required columns: ##select for columns, distinct for rows
+df_arou_generated <- df_arou_generated %>% distinct(custom_id, response.body.choices.0.logprobs.content.0.top_logprobs.0.token, response.body.choices.0.logprobs.content.0.top_logprobs.0.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.1.token, response.body.choices.0.logprobs.content.0.top_logprobs.1.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.2.token, response.body.choices.0.logprobs.content.0.top_logprobs.2.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.3.token, response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.4.token, response.body.choices.0.logprobs.content.0.top_logprobs.4.logprob)
+
+
+### This renames the columns of the dataframe:
+df_arou_generated <- df_arou_generated %>% rename(word_nr = custom_id, token_1 = response.body.choices.0.logprobs.content.0.top_logprobs.0.token, logprob_1 = response.body.choices.0.logprobs.content.0.top_logprobs.0.logprob, token_2 = response.body.choices.0.logprobs.content.0.top_logprobs.1.token, logprob_2 = response.body.choices.0.logprobs.content.0.top_logprobs.1.logprob, token_3 = response.body.choices.0.logprobs.content.0.top_logprobs.2.token, logprob_3 = response.body.choices.0.logprobs.content.0.top_logprobs.2.logprob, token_4 = response.body.choices.0.logprobs.content.0.top_logprobs.3.token, logprob_4 = response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, token_5 = response.body.choices.0.logprobs.content.0.top_logprobs.4.token, logprob_5 = response.body.choices.0.logprobs.content.0.top_logprobs.4.logprob)
+
+
+### This generates the probabilities for a token based of the logprobability:
+df_arou_generated$prob_1 <- exp(df_arou_generated$logprob_1)
+df_arou_generated$prob_2 <- exp(df_arou_generated$logprob_2)
+df_arou_generated$prob_3 <- exp(df_arou_generated$logprob_3)
+df_arou_generated$prob_4 <- exp(df_arou_generated$logprob_4)
+df_arou_generated$prob_5 <- exp(df_arou_generated$logprob_5)
+
+
+### This code makes all token-columns to be characters. This is necessary for the next step.
+df_arou_generated$token_1 <- as.character(df_arou_generated$token_1)
+df_arou_generated$token_2 <- as.character(df_arou_generated$token_2)
+df_arou_generated$token_3 <- as.character(df_arou_generated$token_3)
+df_arou_generated$token_4 <- as.character(df_arou_generated$token_4)
+df_arou_generated$token_5 <- as.character(df_arou_generated$token_5)
+
+
+### This will clean the token_columns, since often they do not contain strictly numbers from 1-7 but also written numbers, or number from different languages. Sometimes even numbers outside of the range of 1-7, or words like "Neutral".
+df_arou_generated <- df_arou_generated %>% mutate(token_3 = recode(token_3, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "NA", "8" = "NA", "۱" = "1", "６" = "6"))
+df_arou_generated <- df_arou_generated %>% mutate(token_4 = recode(token_4, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "0", "8" = "0", "۱" = "1", "６" = "6"))
+df_arou_generated <- df_arou_generated %>% mutate(token_5 = recode(token_5, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "0", "8" = "0", "۱" = "1", "６" = "6", "７" = "7", "۳" = "3"))
+
+df_arou_generated <- df_arou_generated %>% mutate(
+    token_4 = na_if(token_4, "0"))
+df_arou_generated <- df_arou_generated %>% mutate(
+    token_5 = na_if(token_5, "0"))
+
+## This code checks which values are found in a given column (best would be only 1-7):
+unique(df_arou_generated$token_1)
+unique(df_arou_generated$token_2)
+unique(df_arou_generated$token_3)
+unique(df_arou_generated$token_4)
+unique(df_arou_generated$token_5)
+
+### This code makes all columns numeric:
+df_arou_generated$token_1 <- as.numeric(df_arou_generated$token_1) #=>Token-Columns
+df_arou_generated$token_2 <- as.numeric(df_arou_generated$token_2)
+df_arou_generated$token_3 <- as.numeric(df_arou_generated$token_3)
+df_arou_generated$token_4 <- as.numeric(df_arou_generated$token_4)
+df_arou_generated$token_5 <- as.numeric(df_arou_generated$token_5)
+df_arou_generated$prob_1 <- as.numeric(df_arou_generated$prob_1) #=>Probability-columns
+df_arou_generated$prob_2 <- as.numeric(df_arou_generated$prob_2)
+df_arou_generated$prob_3 <- as.numeric(df_arou_generated$prob_3)
+df_arou_generated$prob_4 <- as.numeric(df_arou_generated$prob_4)
+df_arou_generated$prob_5 <- as.numeric(df_arou_generated$prob_5)
+
+### Now we will generate the weighted_sum based on the tokens and their probabilities:
+
+arousal <- function(df_arou_generated) {
+  rowSums(cbind(
+    df_arou_generated$token_1 * df_arou_generated$prob_1,
+    df_arou_generated$token_2 * df_arou_generated$prob_2,
+    df_arou_generated$token_3 * df_arou_generated$prob_3,
+    df_arou_generated$token_4 * df_arou_generated$prob_4,
+    df_arou_generated$token_5 * df_arou_generated$prob_5
+  ), na.rm = TRUE)}
+
+### This code will add the output as a column:
+df_arou_generated$GPT_arou <- arousal(df_arou_generated)
+
+df_arou_generated <- df_arou_generated %>% select(word_nr, GPT_arou)
+```
+
+This creates a dataframe that contains the aoa, concreteness, valence, and arousal estimates together, but not the familiarity estimates:
+
+```{r}
+## This adds another identical column for each of the four dataframes, based on which i can later use left_join:
+df_concr <- data.frame(
+  num = 1:325,
+  GPT_concr = df_concr_generated$GPT_concr
+)
+
+df_val <- data.frame(
+  num = 1:325,
+  GPT_val = df_val_generated$GPT_val
+)
+
+df_arou <- data.frame(
+  num = 1:325,
+  GPT_arou = df_arou_generated$GPT_arou
+)
+
+df_aoa <- data.frame(
+  Word = df_aoa_generated$Word,
+  num = 1:325,
+  GPT_AoA_ft = df_aoa_generated$GPT_AoA_ft
+  )
+
+
+## Now i join these dataframes based on the num column:
+df_others_generated <- df_aoa %>% left_join(df_concr, by = "num")
+df_others_generated <- df_others_generated %>% left_join(df_val, by = "num")
+df_others_generated <- df_others_generated %>% left_join(df_arou, by = "num")
+
+
+## This removes the now unncessary "num" column:
+df_others_generated <- df_others_generated %>% select(Word, GPT_AoA_ft, GPT_concr, GPT_val, GPT_arou)
+```
+
+This code adds the new ratings to the ones from Conde et al. (2026):
+
+```{r}
+df_conde_fam <- df_conde_fam %>% select(Word, GPT_FAM_ft)
+df_conde_other <- df_conde_other %>% select(Word, GPT_concr, GPT_val, GPT_arou, GPT_AoA_ft)
+
+## It is necessary to rename the GPT_FAM column to GPT_FAM_ft for the rbind to work, yet the additional fam ratings from df_fam_miss were not fine-tuned due to bad replication performance, see correlation.Rmd in replication folder!
+df_fam_generated <- df_fam_generated %>% rename("GPT_FAM_ft" = "GPT_FAM")
+
+## This binds the dataframes together by adding rows:
+fam_all <- rbind(df_conde_fam, df_fam_generated)
+others_all <- rbind(df_conde_other, df_others_generated)
+
+write_csv(fam_all, "data/interim_data/familiarity_all_ratings.csv")
+write_csv(others_all, "data/interim_data/others_all_ratings.csv")
+```

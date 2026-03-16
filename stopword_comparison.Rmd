@@ -1,0 +1,82 @@
+---
+title: "stopword_comparison"
+author: "Christopher"
+date: "2026-03-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This loads the required packages:
+
+```{r cars}
+library(tidyverse)
+```
+
+This loads the required data:
+
+```{r pressure, echo=FALSE}
+clean_data <- read.csv("data/interim_data/clean_data.csv")
+nltk_stopwords <- read.csv("data/interim_data/these_are_stopwords.csv")
+```
+
+This code will create a dataset containing only the stop_words as specified in the df_conde dataset:
+
+```{r}
+data <- clean_data %>% distinct(text_nr, trial_nr, .keep_all = TRUE) %>% select(text_nr, trial_nr, word_single, stop_word)
+
+data_distinct <- data %>% distinct(word_single, .keep_all = TRUE) %>% select(word_single, stop_word) ## This dataset contains all words from df_clean once.
+
+data_stop <- data_distinct %>% filter(stop_word == "TRUE")
+
+## => This shows that of the 1236 125 words are stop_words, but they are all lower_case, so there might be more.
+
+#write_csv(data_stop, "data/stopwords_by_r.csv")
+```
+
+
+```{r}
+nltk_stopwords <- nltk_stopwords %>% select(word_single) ## 
+
+## This showcases the amount of rows per dataframe:
+dim(nltk_stopwords) #174 
+dim(data_stop) #125
+
+## This adds a num column based on which i can perform a join:
+
+nltk <- data.frame(
+  nltk = nltk_stopwords$word_single,
+  num = 1:174
+  )
+
+stop <- data.frame(
+  stop = data_stop$word_single,
+  num = 1:125
+)
+
+## This joins the datasets enabling us to direclty compare them:
+comparison_stopwords <- nltk %>% left_join(stop, by = c("num"))
+
+# What are the differences between the two approaches?
+
+## => The stopwords directly from nltk include upper-case.
+## => Another very small difference is that the word "dass" is considered a stopword by nltk but not by those already in clean_data.
+
+#### => It makes sense to take the nltk approach.
+
+write.csv(nltk_stopwords, "data/interim_data/stopwords.csv")
+```
+
+### This is just a double check that data distinct really contains all words found in df_clean:
+
+
+```{r}
+dat <- data.frame(
+  word_single = data_distinct$word_single,
+  num = 1:1236
+)
+
+test <- clean_data %>% left_join(dat, by = "word_single")
+```
