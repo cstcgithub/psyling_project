@@ -1,0 +1,460 @@
+---
+title: "Full-Replication"
+author: "Christopher"
+date: "2026-03-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+this loads the required packages:
+
+```{r}
+library(tidyverse)
+library(patchwork)
+```
+
+this loads the required data:
+
+```{r cars}
+## GPT estimates by Conde et al. (2026):
+conde_data <- read_xlsx("data_conde/GPT estimates of Concreteness valence arousal AoA for 167K German words.xlsx")
+
+## GPT esimates which I generated using gpt-mini:
+fam_rep <- read.csv("replication_data/fam_replication.csv")
+concreteness_rep <- read.csv("replication_data/concr_replication.csv")
+valence_rep <- read.csv("replication_data/val_replication.csv")
+arousal_rep <- read.csv("replication_data/arou_replication.csv")
+
+## GPT aoa estimates which I generated using a fine-tuned model:
+aoa_rep <- read.csv("replication_data/aoa_ft_prompt_ft.csv", sep = ";") ## Info to myself: for the replication i used the prompt_ft, not the regular prompt which specifies 2 decimals in the prompt.
+```
+
+This script will select a subdataset (10.000 rows) from the whole conde_data. This is because conde_data contains nearly 170.000 rows. Such a large replication is not necessary, therefore the decision to select a subset of said rows.
+
+For the replication to work, it is important that the values are distributed across the whole range, otherwise the Pearson correlation will artificially remain low, since the LLM is not deterministic and therefore will mill the exact value often. In the beginning of the script one can find an example to make this more intuitive: 
+
+```{r}
+#### This is an example why it is important that the variable we want to replicate is distributed across the whole possible range:
+
+# two datasets, data2 has one extra row:
+data1 <- data.frame(predictorA = c(6.95, 6.94, 7), predictorB = c(6.57, 6.92, 6.95)) ## data1 does not include the whole range of familiarity ratings (1-7, but practically 3.5-7).
+data2 <- data.frame(predictorA = c(6.95, 6.94, 7, 3.5), predictorB = c(6.57, 6.92, 6.95, 3.52)) ## data2 does include one datapoint at the lowest possible point in the practical range.
+# Pearson correlation:
+cor(data1$predictorA, data1$predictorB, method = "pearson") ## 0.4245658
+cor(data2$predictorA, data2$predictorB, method = "pearson") ## 0.995114
+
+## => The Pearson correlation between both are radically different.
+## => This shows that having a dataset which contains only a very specific subgroub of the range, for example only 4.0-4.3 or only 6.9-7.0, will result in a low Pearson correlation, since then the outputs of the LLM (which are not deterministic) will seem relatively (!) inaccurate, which can be solveed fast by increasing variance through a rating that is further away from that area of the range.
+
+#### This is the procedure how the 10.000 rows were selected ensuring that no scenarios like the above one happen:
+
+## This ensures that the distribution of the GPT_FAM ratings is rougly equal across the possible range. It is limited on the bottom, since there are no ratigns lower than 3.5.
+
+
+## This divides the whole dataset from Conde et al. (2026) into four categories based on the GPT_FAM column: 
+# 1. ratings from 6 or higher to 7; from 5 to 6; from 4 to 5; from 3 to 4;
+rep_data_1 <-conde_data[conde_data$GPT_FAM >= 6 & conde_data$GPT_FAM <= 7, ] 
+rep_data_2 <-conde_data[conde_data$GPT_FAM >= 5 & conde_data$GPT_FAM <= 6, ]
+rep_data_3 <-conde_data[conde_data$GPT_FAM >= 4 & conde_data$GPT_FAM <= 5, ]
+rep_data_4 <-conde_data[conde_data$GPT_FAM >= 3 & conde_data$GPT_FAM <= 4, ]
+
+# This picks the first 2500 words from these four categories and creates a dataframe each.
+rep_data_1 <- rep_data_1 %>% slice(1:2500)
+rep_data_2 <- rep_data_2 %>% slice(1:2500)
+rep_data_3 <- rep_data_3 %>% slice(1:2500)
+rep_data_4 <- rep_data_4 %>% slice(1:2500)
+
+# This adds a category column:
+rep_data_1$category <- "A"
+rep_data_2$category <- "B"
+rep_data_3$category <- "C"
+rep_data_4$category <- "D"
+
+# This binds all four datasets into one dataset containing 10.000 words.
+rep_data <- rbind(rep_data_1, rep_data_2, rep_data_3, rep_data_4)
+
+## Important: While the restriction categories start with 3 and go up to 7 for GPT_FAM, this does not mean that f.e. GPT_concr cannot have a rating below 3. This is simply a selection mechanism for picking rows. In general, GPT_FAM can have values from 3.5 to 7; GPT_concr, GPT_val, and GPT_arou can have values from 1 to 7; and GPT_AoA_ft can have values from 2 to 20.
+```
+
+This plots the five GPTs in the rep_data dataset:
+
+```{r}
+p1 <- ggplot(rep_data, aes(x = GPT_FAM, fill = category)) +
+  geom_boxplot(alpha =0.35) +
+  theme_bw() +
+  theme(legend.position = "none") +
+  labs(title = "Distribution of GPT_FAM in the replication dataset from Conde et al. (2026)")
+
+p2 <- ggplot(rep_data, aes(x = GPT_concr, fill = category)) +
+  geom_boxplot(alpha =0.35) +
+  theme_bw() +
+  theme(legend.position = "none") +
+  labs(title = "Distribution of GPT_concr in the replication dataset from Conde et al. (2026)")
+
+p3 <- ggplot(rep_data, aes(x = GPT_val, fill = category)) +
+  geom_boxplot(alpha =0.35) +
+  theme_bw() +
+  theme(legend.position = "none") +
+  labs(title = "Distribution of GPT_val in the replication dataset from Conde et al. (2026)")
+
+p4 <- ggplot(rep_data, aes(x = GPT_arou, fill = category)) +
+  geom_boxplot(alpha =0.35) +
+  theme_bw() +
+  theme(legend.position = "none") +
+  labs(title = "Distribution of GPT_arou in the replication dataset from Conde et al. (2026)")
+
+p5 <- ggplot(rep_data, aes(x = GPT_AoA_ft, fill = category)) +
+  geom_boxplot(alpha =0.35) +
+  theme_bw() +
+  theme(legend.position = "none") +
+  labs(title = "Distribution of GPT_AoA_ft in the replication dataset from Conde et al. (2026)")
+
+(p1 | p2) / (p3 | p4) / p5
+```
+
+This code will extract a weighted_sum from the fam_rep data, which was generated by myself based on scripts from Conde et al. (2026). 
+
+the goal of this script is to showcase how high the Pearson correlation is between the original GPT estimates from Conde and the ones I generated, in order to prove the utility of my approach.
+
+The GPT estimates are calculated based off the weighted-sum-approach from Martinez et al. (2024). It works the following way: The LLM provides tokens as well as their logprobabilities. If it outputs a tokenA with logprobability X and tokenB with logprobability Y and tokenC with logprobability Z, then the weighted-sum would equal A times probability X plus B times probability Y plus C times probability Z. It is important to note that real probabilities are used, eventhough ChatGPT provides logprobabilities, therefore they need to be turned into real probabilites using the exp()-function.
+
+An example taken from Martinez et al. (2024):
+
+The first three output-tokens for the word "Frucht" for example were the following:
+Rating "5" with a logprobability of -0.009519013. Rating "4" with a logprobability of -4.7595191. Rating "6" with a logprobability of -7.009519. It is clear that the first output-token is viewed as the most likely answer from the model. In order to now calculate the weighted_sum we will turn the logprobabilities to regular probabilities. This results in: 0.9905261 for rating "5", 0.00856973 for rating "4", 0.0009032429 for rating "6". Now we multiply the ratings with their probability and add them together to get the weighted_sum:
+
+4.95263 + 0.03427892 + 0.005419457 = 4.992328 (weighted_sum)
+
+It is important to note that the number of output-tokens varies. Its usually 5, but can also be f.e. 4.
+
+This extracts the weighted_sums from the fam_rep csv file:
+
+```{r}
+### This reduces the dataframe to only the required columns: ##select for columns, distinct for rows
+fam_rep <- fam_rep %>% distinct(custom_id, response.body.choices.0.logprobs.content.0.top_logprobs.0.token, response.body.choices.0.logprobs.content.0.top_logprobs.0.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.1.token, response.body.choices.0.logprobs.content.0.top_logprobs.1.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.2.token, response.body.choices.0.logprobs.content.0.top_logprobs.2.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.3.token, response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.4.token, response.body.choices.0.logprobs.content.0.top_logprobs.4.logprob)
+
+
+### This renames the columns of the dataframe:
+fam_rep <- fam_rep %>% rename(word_nr = custom_id, token_1 = response.body.choices.0.logprobs.content.0.top_logprobs.0.token, logprob_1 = response.body.choices.0.logprobs.content.0.top_logprobs.0.logprob, token_2 = response.body.choices.0.logprobs.content.0.top_logprobs.1.token, logprob_2 = response.body.choices.0.logprobs.content.0.top_logprobs.1.logprob, token_3 = response.body.choices.0.logprobs.content.0.top_logprobs.2.token, logprob_3 = response.body.choices.0.logprobs.content.0.top_logprobs.2.logprob, token_4 = response.body.choices.0.logprobs.content.0.top_logprobs.3.token, logprob_4 = response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, token_5 = response.body.choices.0.logprobs.content.0.top_logprobs.4.token, logprob_5 = response.body.choices.0.logprobs.content.0.top_logprobs.4.logprob)
+
+
+### This generates the probabilities for a token based of the logprobability:
+fam_rep$prob_1 <- exp(fam_rep$logprob_1)
+fam_rep$prob_2 <- exp(fam_rep$logprob_2)
+fam_rep$prob_3 <- exp(fam_rep$logprob_3)
+fam_rep$prob_4 <- exp(fam_rep$logprob_4)
+fam_rep$prob_5 <- exp(fam_rep$logprob_5)
+
+
+### This code makes all token-columns to be characters. This is necessary for the next step.
+fam_rep$token_1 <- as.character(fam_rep$token_1)
+fam_rep$token_2 <- as.character(fam_rep$token_2)
+fam_rep$token_3 <- as.character(fam_rep$token_3)
+fam_rep$token_4 <- as.character(fam_rep$token_4)
+fam_rep$token_5 <- as.character(fam_rep$token_5)
+
+
+### This will clean the token_columns, since often they do not contain strictly numbers from 1-7 but also written numbers, or number from different languages. Sometimes even numbers outside of the range of 1-7, or words like "Neutral".
+
+fam_rep <- fam_rep %>% mutate(token_2 = recode(token_2, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "NA", "8" = "NA", "۱" = "1", "６" = "6"))
+fam_rep <- fam_rep %>% mutate(token_3 = recode(token_3, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "NA", "8" = "NA", "۱" = "1", "６" = "6"))
+fam_rep <- fam_rep %>% mutate(token_4 = recode(token_4, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "0", "8" = "0", "۱" = "1", "６" = "6", "六" = "6", "７" = "7"))
+fam_rep <- fam_rep %>% mutate(token_5 = recode(token_5, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "0", "8" = "0", "۱" = "1", "６" = "6", "７" = "7", "六" = "6"))
+
+fam_rep <- fam_rep %>% mutate(
+    token_4 = na_if(token_4, "0"))
+fam_rep <- fam_rep %>% mutate(
+    token_5 = na_if(token_5, "0"))
+
+## This code checks which values are found in a given column (best would be only 1-7):
+unique(fam_rep$token_1)
+unique(fam_rep$token_2)
+unique(fam_rep$token_3)
+unique(fam_rep$token_4)
+unique(fam_rep$token_5)
+
+### This code makes all columns numeric:
+fam_rep$token_1 <- as.numeric(fam_rep$token_1) #=>Token-Columns
+fam_rep$token_2 <- as.numeric(fam_rep$token_2)
+fam_rep$token_3 <- as.numeric(fam_rep$token_3)
+fam_rep$token_4 <- as.numeric(fam_rep$token_4)
+fam_rep$token_5 <- as.numeric(fam_rep$token_5)
+fam_rep$prob_1 <- as.numeric(fam_rep$prob_1) #=>Probability-columns
+fam_rep$prob_2 <- as.numeric(fam_rep$prob_2)
+fam_rep$prob_3 <- as.numeric(fam_rep$prob_3)
+fam_rep$prob_4 <- as.numeric(fam_rep$prob_4)
+fam_rep$prob_5 <- as.numeric(fam_rep$prob_5)
+
+### Now we will generate the weighted_sum based on the tokens and their probabilities:
+
+familiarity <- function(fam_rep) {
+  rowSums(cbind(
+    fam_rep$token_1 * fam_rep$prob_1,
+    fam_rep$token_2 * fam_rep$prob_2,
+    fam_rep$token_3 * fam_rep$prob_3,
+    fam_rep$token_4 * fam_rep$prob_4,
+    fam_rep$token_5 * fam_rep$prob_5
+  ), na.rm = TRUE)}
+
+### This code will add the output as a column:
+fam_rep$familiarity_replication <- familiarity(fam_rep)
+
+## This removes all columns from fam_rep that are nomore necessary:
+fam_rep <- fam_rep %>% select(word_nr, familiarity_replication)
+
+```
+
+Concreteness:
+
+```{r}
+### This reduces the dataframe to only the required columns: ##select for columns, distinct for rows
+concreteness_rep <- concreteness_rep %>% distinct(custom_id, response.body.choices.0.logprobs.content.0.top_logprobs.0.token, response.body.choices.0.logprobs.content.0.top_logprobs.0.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.1.token, response.body.choices.0.logprobs.content.0.top_logprobs.1.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.2.token, response.body.choices.0.logprobs.content.0.top_logprobs.2.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.3.token, response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.4.token, response.body.choices.0.logprobs.content.0.top_logprobs.4.logprob)
+
+
+### This renames the columns of the dataframe:
+concreteness_rep <- concreteness_rep %>% rename(word_nr = custom_id, token_1 = response.body.choices.0.logprobs.content.0.top_logprobs.0.token, logprob_1 = response.body.choices.0.logprobs.content.0.top_logprobs.0.logprob, token_2 = response.body.choices.0.logprobs.content.0.top_logprobs.1.token, logprob_2 = response.body.choices.0.logprobs.content.0.top_logprobs.1.logprob, token_3 = response.body.choices.0.logprobs.content.0.top_logprobs.2.token, logprob_3 = response.body.choices.0.logprobs.content.0.top_logprobs.2.logprob, token_4 = response.body.choices.0.logprobs.content.0.top_logprobs.3.token, logprob_4 = response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, token_5 = response.body.choices.0.logprobs.content.0.top_logprobs.4.token, logprob_5 = response.body.choices.0.logprobs.content.0.top_logprobs.4.logprob)
+
+
+### This generates the probabilities for a token based of the logprobability:
+concreteness_rep$prob_1 <- exp(concreteness_rep$logprob_1)
+concreteness_rep$prob_2 <- exp(concreteness_rep$logprob_2)
+concreteness_rep$prob_3 <- exp(concreteness_rep$logprob_3)
+concreteness_rep$prob_4 <- exp(concreteness_rep$logprob_4)
+concreteness_rep$prob_5 <- exp(concreteness_rep$logprob_5)
+
+
+### This code makes all token-columns to be characters. This is necessary for the next step.
+concreteness_rep$token_1 <- as.character(concreteness_rep$token_1)
+concreteness_rep$token_2 <- as.character(concreteness_rep$token_2)
+concreteness_rep$token_3 <- as.character(concreteness_rep$token_3)
+concreteness_rep$token_4 <- as.character(concreteness_rep$token_4)
+concreteness_rep$token_5 <- as.character(concreteness_rep$token_5)
+
+
+### This will clean the token_columns, since often they do not contain strictly numbers from 1-7 but also written numbers, or number from different languages. Sometimes even numbers outside of the range of 1-7, or words like "Neutral".
+concreteness_rep <- concreteness_rep %>% mutate(token_3 = recode(token_3, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "NA", "8" = "NA", "۱" = "1", "６" = "6"))
+concreteness_rep <- concreteness_rep %>% mutate(token_4 = recode(token_4, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "0", "8" = "0", "۱" = "1", "６" = "6"))
+concreteness_rep <- concreteness_rep %>% mutate(token_5 = recode(token_5, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "0", "8" = "0", "۱" = "1", "６" = "6", "７" = "7", "六" = "6"))
+
+concreteness_rep <- concreteness_rep %>% mutate(
+    token_4 = na_if(token_4, "0"))
+concreteness_rep <- concreteness_rep %>% mutate(
+    token_5 = na_if(token_5, "0"))
+
+## This code checks which values are found in a given column (best would be only 1-7):
+unique(concreteness_rep$token_1)
+unique(concreteness_rep$token_2)
+unique(concreteness_rep$token_3)
+unique(concreteness_rep$token_4)
+unique(concreteness_rep$token_5)
+
+### This code makes all columns numeric:
+concreteness_rep$token_1 <- as.numeric(concreteness_rep$token_1) #=>Token-Columns
+concreteness_rep$token_2 <- as.numeric(concreteness_rep$token_2)
+concreteness_rep$token_3 <- as.numeric(concreteness_rep$token_3)
+concreteness_rep$token_4 <- as.numeric(concreteness_rep$token_4)
+concreteness_rep$token_5 <- as.numeric(concreteness_rep$token_5)
+concreteness_rep$prob_1 <- as.numeric(concreteness_rep$prob_1) #=>Probability-columns
+concreteness_rep$prob_2 <- as.numeric(concreteness_rep$prob_2)
+concreteness_rep$prob_3 <- as.numeric(concreteness_rep$prob_3)
+concreteness_rep$prob_4 <- as.numeric(concreteness_rep$prob_4)
+concreteness_rep$prob_5 <- as.numeric(concreteness_rep$prob_5)
+
+### Now we will generate the weighted_sum based on the tokens and their probabilities:
+
+concreteness <- function(concreteness_rep) {
+  rowSums(cbind(
+    concreteness_rep$token_1 * concreteness_rep$prob_1,
+    concreteness_rep$token_2 * concreteness_rep$prob_2,
+    concreteness_rep$token_3 * concreteness_rep$prob_3,
+    concreteness_rep$token_4 * concreteness_rep$prob_4,
+    concreteness_rep$token_5 * concreteness_rep$prob_5
+  ), na.rm = TRUE)}
+
+### This code will add the output as a column:
+concreteness_rep$concreteness_replication <- concreteness(concreteness_rep)
+
+# This will remove unncessary columns
+concreteness_rep <- concreteness_rep %>% select(word_nr, concreteness_replication)
+
+```
+
+
+Valence:
+
+
+```{r}
+### This reduces the dataframe to only the required columns: ##select for columns, distinct for rows
+valence_rep <- valence_rep %>% distinct(custom_id, response.body.choices.0.logprobs.content.0.top_logprobs.0.token, response.body.choices.0.logprobs.content.0.top_logprobs.0.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.1.token, response.body.choices.0.logprobs.content.0.top_logprobs.1.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.2.token, response.body.choices.0.logprobs.content.0.top_logprobs.2.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.3.token, response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.4.token, response.body.choices.0.logprobs.content.0.top_logprobs.4.logprob)
+
+
+### This renames the columns of the dataframe:
+valence_rep <- valence_rep %>% rename(word_nr = custom_id, token_1 = response.body.choices.0.logprobs.content.0.top_logprobs.0.token, logprob_1 = response.body.choices.0.logprobs.content.0.top_logprobs.0.logprob, token_2 = response.body.choices.0.logprobs.content.0.top_logprobs.1.token, logprob_2 = response.body.choices.0.logprobs.content.0.top_logprobs.1.logprob, token_3 = response.body.choices.0.logprobs.content.0.top_logprobs.2.token, logprob_3 = response.body.choices.0.logprobs.content.0.top_logprobs.2.logprob, token_4 = response.body.choices.0.logprobs.content.0.top_logprobs.3.token, logprob_4 = response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, token_5 = response.body.choices.0.logprobs.content.0.top_logprobs.4.token, logprob_5 = response.body.choices.0.logprobs.content.0.top_logprobs.4.logprob)
+
+
+### This generates the probabilities for a token based of the logprobability:
+valence_rep$prob_1 <- exp(valence_rep$logprob_1)
+valence_rep$prob_2 <- exp(valence_rep$logprob_2)
+valence_rep$prob_3 <- exp(valence_rep$logprob_3)
+valence_rep$prob_4 <- exp(valence_rep$logprob_4)
+valence_rep$prob_5 <- exp(valence_rep$logprob_5)
+
+
+### This code makes all token-columns to be characters. This is necessary for the next step.
+valence_rep$token_1 <- as.character(valence_rep$token_1)
+valence_rep$token_2 <- as.character(valence_rep$token_2)
+valence_rep$token_3 <- as.character(valence_rep$token_3)
+valence_rep$token_4 <- as.character(valence_rep$token_4)
+valence_rep$token_5 <- as.character(valence_rep$token_5)
+
+
+### This will clean the token_columns, since often they do not contain strictly numbers from 1-7 but also written numbers, or number from different languages. Sometimes even numbers outside of the range of 1-7, or words like "Neutral".
+valence_rep <- valence_rep %>% mutate(token_2 = recode(token_2, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "NA", "8" = "NA", "۱" = "1", "６" = "6", "१" = "1", "１" = "1"))
+valence_rep <- valence_rep %>% mutate(token_3 = recode(token_3, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "NA", "8" = "NA", "۱" = "1", "６" = "6"))
+valence_rep <- valence_rep %>% mutate(token_4 = recode(token_4, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "0", "8" = "0", "۱" = "1", "６" = "6", " four" = "4", "One" = "1", " vier" = "4", "₂" = "2", "۲" = "2"))
+valence_rep <- valence_rep %>% mutate(token_5 = recode(token_5, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "0", "8" = "0", "۱" = "1", "６" = "6", "７" = "7", " Five" = "5", "Neutral" = "0", " seventh" = "7", " sixth" = "6", "One" = "1", "02" = "2", " vier" = "4", " four" = "4", "₂" = "2", "I" = "1", "۲" = "2", "۳" = "3"))
+
+valence_rep <- valence_rep %>% mutate(
+    token_4 = na_if(token_4, "0"))
+valence_rep <- valence_rep %>% mutate(
+    token_5 = na_if(token_5, "0"))
+
+## This code checks which values are found in a given column (best would be only 1-7):
+unique(valence_rep$token_1)
+unique(valence_rep$token_2)
+unique(valence_rep$token_3)
+unique(valence_rep$token_4)
+unique(valence_rep$token_5)
+
+### This code makes all columns numeric:
+valence_rep$token_1 <- as.numeric(valence_rep$token_1) #=>Token-Columns
+valence_rep$token_2 <- as.numeric(valence_rep$token_2)
+valence_rep$token_3 <- as.numeric(valence_rep$token_3)
+valence_rep$token_4 <- as.numeric(valence_rep$token_4)
+valence_rep$token_5 <- as.numeric(valence_rep$token_5)
+valence_rep$prob_1 <- as.numeric(valence_rep$prob_1) #=>Probability-columns
+valence_rep$prob_2 <- as.numeric(valence_rep$prob_2)
+valence_rep$prob_3 <- as.numeric(valence_rep$prob_3)
+valence_rep$prob_4 <- as.numeric(valence_rep$prob_4)
+valence_rep$prob_5 <- as.numeric(valence_rep$prob_5)
+
+### Now we will generate the weighted_sum based on the tokens and their probabilities:
+
+valence <- function(valence_rep) {
+  rowSums(cbind(
+    valence_rep$token_1 * valence_rep$prob_1,
+    valence_rep$token_2 * valence_rep$prob_2,
+    valence_rep$token_3 * valence_rep$prob_3,
+    valence_rep$token_4 * valence_rep$prob_4,
+    valence_rep$token_5 * valence_rep$prob_5
+  ), na.rm = TRUE)}
+
+### This code will add the output as a column:
+valence_rep$valence_replication <- valence(valence_rep)
+
+# Remova of unncessary rows:
+valence_rep <- valence_rep %>% select(word_nr, valence_replication)
+```
+
+Arousal
+
+```{r}
+### This reduces the dataframe to only the required columns: ##select for columns, distinct for rows
+arousal_rep <- arousal_rep %>% distinct(custom_id, response.body.choices.0.logprobs.content.0.top_logprobs.0.token, response.body.choices.0.logprobs.content.0.top_logprobs.0.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.1.token, response.body.choices.0.logprobs.content.0.top_logprobs.1.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.2.token, response.body.choices.0.logprobs.content.0.top_logprobs.2.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.3.token, response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.4.token, response.body.choices.0.logprobs.content.0.top_logprobs.4.logprob)
+
+
+### This renames the columns of the dataframe:
+arousal_rep <- arousal_rep %>% rename(word_nr = custom_id, token_1 = response.body.choices.0.logprobs.content.0.top_logprobs.0.token, logprob_1 = response.body.choices.0.logprobs.content.0.top_logprobs.0.logprob, token_2 = response.body.choices.0.logprobs.content.0.top_logprobs.1.token, logprob_2 = response.body.choices.0.logprobs.content.0.top_logprobs.1.logprob, token_3 = response.body.choices.0.logprobs.content.0.top_logprobs.2.token, logprob_3 = response.body.choices.0.logprobs.content.0.top_logprobs.2.logprob, token_4 = response.body.choices.0.logprobs.content.0.top_logprobs.3.token, logprob_4 = response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, token_5 = response.body.choices.0.logprobs.content.0.top_logprobs.4.token, logprob_5 = response.body.choices.0.logprobs.content.0.top_logprobs.4.logprob)
+
+
+### This generates the probabilities for a token based of the logprobability:
+arousal_rep$prob_1 <- exp(arousal_rep$logprob_1)
+arousal_rep$prob_2 <- exp(arousal_rep$logprob_2)
+arousal_rep$prob_3 <- exp(arousal_rep$logprob_3)
+arousal_rep$prob_4 <- exp(arousal_rep$logprob_4)
+arousal_rep$prob_5 <- exp(arousal_rep$logprob_5)
+
+
+### This code makes all token-columns to be characters. This is necessary for the next step.
+arousal_rep$token_1 <- as.character(arousal_rep$token_1)
+arousal_rep$token_2 <- as.character(arousal_rep$token_2)
+arousal_rep$token_3 <- as.character(arousal_rep$token_3)
+arousal_rep$token_4 <- as.character(arousal_rep$token_4)
+arousal_rep$token_5 <- as.character(arousal_rep$token_5)
+
+
+### This will clean the token_columns, since often they do not contain strictly numbers from 1-7 but also written numbers, or number from different languages. Sometimes even numbers outside of the range of 1-7, or words like "Neutral".
+arousal_rep <- arousal_rep %>% mutate(token_3 = recode(token_3, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "NA", "8" = "NA", "۱" = "1", "６" = "6", " four" = "4"))
+arousal_rep <- arousal_rep %>% mutate(token_4 = recode(token_4, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "0", "8" = "0", "۱" = "1", "６" = "6", " seventh" = "7", " four" = "4"))
+arousal_rep <- arousal_rep %>% mutate(token_5 = recode(token_5, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "0", "8" = "0", "۱" = "1", "６" = "6", "７" = "7", " four" = "4", "02" = "2", " seventh" = "7", "Neutral" = "0", "<|end|>" = "0", " Seven" = "7", "四" = "4", "۳" = "3", "۲" = "2"))
+
+arousal_rep <- arousal_rep %>% mutate(
+    token_4 = na_if(token_4, "0"))
+arousal_rep <- arousal_rep %>% mutate(
+    token_5 = na_if(token_5, "0"))
+
+## This code checks which values are found in a given column (best would be only 1-7):
+unique(arousal_rep$token_1)
+unique(arousal_rep$token_2)
+unique(arousal_rep$token_3)
+unique(arousal_rep$token_4)
+unique(arousal_rep$token_5)
+
+### This code makes all columns numeric:
+arousal_rep$token_1 <- as.numeric(arousal_rep$token_1) #=>Token-Columns
+arousal_rep$token_2 <- as.numeric(arousal_rep$token_2)
+arousal_rep$token_3 <- as.numeric(arousal_rep$token_3)
+arousal_rep$token_4 <- as.numeric(arousal_rep$token_4)
+arousal_rep$token_5 <- as.numeric(arousal_rep$token_5)
+arousal_rep$prob_1 <- as.numeric(arousal_rep$prob_1) #=>Probability-columns
+arousal_rep$prob_2 <- as.numeric(arousal_rep$prob_2)
+arousal_rep$prob_3 <- as.numeric(arousal_rep$prob_3)
+arousal_rep$prob_4 <- as.numeric(arousal_rep$prob_4)
+arousal_rep$prob_5 <- as.numeric(arousal_rep$prob_5)
+
+### Now we will generate the weighted_sum based on the tokens and their probabilities:
+
+arousal <- function(arousal_rep) {
+  rowSums(cbind(
+    arousal_rep$token_1 * arousal_rep$prob_1,
+    arousal_rep$token_2 * arousal_rep$prob_2,
+    arousal_rep$token_3 * arousal_rep$prob_3,
+    arousal_rep$token_4 * arousal_rep$prob_4,
+    arousal_rep$token_5 * arousal_rep$prob_5
+  ), na.rm = TRUE)}
+
+### This code will add the output as a column:
+arousal_rep$arousal_replication <- arousal(arousal_rep)
+
+# removal of unneccessary columns:
+arousal_rep <- arousal_rep %>% select(word_nr, arousal_replication)
+```
+
+correlation:
+
+```{r, echo=FALSE}
+# this creates one dataframe with all ratings
+corr_data <- cbind(rep_data, fam_rep)
+corr_data <- cbind(corr_data, concreteness_rep)
+corr_data <- cbind(corr_data, valence_rep)
+corr_data <- cbind(corr_data, arousal_rep)
+corr_data <- cbind(corr_data, aoa_rep)
+
+# this correlates all the ratings:
+cor(corr_data$GPT_FAM, corr_data$familiarity_replication) ## 0.9913366
+cor(corr_data$GPT_concr, corr_data$concreteness_replication) ## 0.992714
+cor(corr_data$GPT_val, corr_data$valence_replication) ## 0.99085
+cor(corr_data$GPT_arou, corr_data$arousal_replication) ## 0.9890319
+cor(corr_data$GPT_AoA_ft, corr_data$aoa) ## 0.9786295
+
+## => This concludes that the GPT estimates, which were generated by myself correlate strongly with the ones provided by Conde et al. (2026). The strongest Pearson correlation can be found between the concreteness ratings, while the weakest can be found in the aoa ratings which is still at 0.978 though.
+
+#### note to myself:
+#-> familiarity, concreteness, valence, and arousal were not finetuned.
+#-> age of acquisition was finetuned and I used the fine-tuned prompt when generating. 
+# => All provided by Conde et al. (2026) except for the code extracting the weighted sum seen above.
+```
+
