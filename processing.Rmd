@@ -1,0 +1,459 @@
+---
+title: "Untitled"
+author: "Christopher"
+date: "2026-04-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## loading the packages
+
+```{r}
+library(tidyverse)
+```
+
+## loading the data
+
+```{r}
+## readig times data:
+reading_times_data <- read.csv("reading_times_data.csv")
+
+## familiarity, concreteness, valence, arousal, and age of acquisition GPT estimates by myself:
+familiarity_ratings_by_me <- read.csv("GPTestimates/familiarity.csv")
+concreteness_ratings_by_me <- read.csv("GPTestimates/concreteness.csv")
+valence_ratings_by_me <- read.csv("GPTestimates/valence.csv")
+arousal_ratings_by_me <- read.csv("GPTestimates/arousal.csv")
+age_acquisition_ratings_by_me <- read.csv("GPTestimates/aoa_ft.csv", sep = ";")
+
+## surprisal and entropy ratings:
+surprisal_and_entropy_scores <- read.csv("surprisal_freqeuncy/vanilla_2words_surprisal_entropy_10Texts_02_2026.csv")
+
+## frequency and zipf frequency ratings:
+frequency_scores <- read.csv("surprisal_freqeuncy/EXNAT_B_word_freqs.csv", sep = ";")
+
+## stopwords as identified by the natural language toolkit (nltk)
+stopwords_nltk <- read.csv("stopwords_nltk/stopwords_nltk.csv")
+```
+
+## preprocessing of the data
+
+```{r, echo=FALSE}
+## preprocessing of the reading_times_data
+unique_words_in_the_texts <- reading_times_data %>% distinct(word_single)
+dim(unique_words_in_the_texts) ## 1236 unique words
+reading_times_data <- reading_times_data %>% filter(!cognitive_load %in% c("1back", "2back")) # only baseline condition remains
+reading_times_data <- reading_times_data %>% select(-c(cognitive_load, target, nback_response, nback_RT, reaction, stop_word, word_frequency, surprisal_2, entropy_2, previous_surprisal_2, previous_entropy_2, word_frequency_previous_word, previous_reaction, dprime, mean_dprime_singletasks, word_frequency_cat))
+```
+
+## loading the OpenAI output for the words remaining without GPT familiarity estimate: 
+
+```{r}
+## familiarity
+
+### This reduces the dataframe to only the required columns: ##select for columns, distinct for rows
+familiarity_ratings_by_me <- familiarity_ratings_by_me %>% distinct(custom_id, response.body.choices.0.logprobs.content.0.top_logprobs.0.token, response.body.choices.0.logprobs.content.0.top_logprobs.0.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.1.token, response.body.choices.0.logprobs.content.0.top_logprobs.1.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.2.token, response.body.choices.0.logprobs.content.0.top_logprobs.2.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.3.token, response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.4.token, response.body.choices.0.logprobs.content.0.top_logprobs.4.logprob)
+
+
+### This renames the columns of the dataframe:
+familiarity_ratings_by_me <- familiarity_ratings_by_me %>% rename(word_nr = custom_id, token_1 = response.body.choices.0.logprobs.content.0.top_logprobs.0.token, logprob_1 = response.body.choices.0.logprobs.content.0.top_logprobs.0.logprob, token_2 = response.body.choices.0.logprobs.content.0.top_logprobs.1.token, logprob_2 = response.body.choices.0.logprobs.content.0.top_logprobs.1.logprob, token_3 = response.body.choices.0.logprobs.content.0.top_logprobs.2.token, logprob_3 = response.body.choices.0.logprobs.content.0.top_logprobs.2.logprob, token_4 = response.body.choices.0.logprobs.content.0.top_logprobs.3.token, logprob_4 = response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, token_5 = response.body.choices.0.logprobs.content.0.top_logprobs.4.token, logprob_5 = response.body.choices.0.logprobs.content.0.top_logprobs.4.logprob)
+
+
+### This generates the probabilities for a token based of the logprobability:
+familiarity_ratings_by_me$prob_1 <- exp(familiarity_ratings_by_me$logprob_1)
+familiarity_ratings_by_me$prob_2 <- exp(familiarity_ratings_by_me$logprob_2)
+familiarity_ratings_by_me$prob_3 <- exp(familiarity_ratings_by_me$logprob_3)
+familiarity_ratings_by_me$prob_4 <- exp(familiarity_ratings_by_me$logprob_4)
+familiarity_ratings_by_me$prob_5 <- exp(familiarity_ratings_by_me$logprob_5)
+
+
+### This code makes all token-columns to be characters. This is necessary for the next step.
+familiarity_ratings_by_me$token_1 <- as.character(familiarity_ratings_by_me$token_1)
+familiarity_ratings_by_me$token_2 <- as.character(familiarity_ratings_by_me$token_2)
+familiarity_ratings_by_me$token_3 <- as.character(familiarity_ratings_by_me$token_3)
+familiarity_ratings_by_me$token_4 <- as.character(familiarity_ratings_by_me$token_4)
+familiarity_ratings_by_me$token_5 <- as.character(familiarity_ratings_by_me$token_5)
+
+
+### This will clean the token_columns, since often they do not contain strictly numbers from 1-7 but also written numbers, or number from different languages. Sometimes even numbers outside of the range of 1-7, or words like "Neutral".
+familiarity_ratings_by_me <- familiarity_ratings_by_me %>% mutate(token_2 = recode(token_2, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "NA", "8" = "NA", "۱" = "1", "６" = "6"))
+familiarity_ratings_by_me <- familiarity_ratings_by_me %>% mutate(token_3 = recode(token_3, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "NA", "8" = "NA", "۱" = "1", "６" = "6", "７" = "7"))
+familiarity_ratings_by_me <- familiarity_ratings_by_me %>% mutate(token_4 = recode(token_4, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "0", "8" = "0", "۱" = "1", "６" = "6", "７" = "7", "六" = "6"))
+familiarity_ratings_by_me <- familiarity_ratings_by_me %>% mutate(token_5 = recode(token_5, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "0", "8" = "0", "۱" = "1", "６" = "6", "７" = "7", "六" = "6"))
+
+familiarity_ratings_by_me <- familiarity_ratings_by_me %>% mutate(token_4 = na_if(token_4, "0"))
+familiarity_ratings_by_me <- familiarity_ratings_by_me %>% mutate(token_5 = na_if(token_5, "0"))
+
+## This code checks which values are found in a given column (best would be only 1-7):
+unique(familiarity_ratings_by_me$token_1)
+unique(familiarity_ratings_by_me$token_2)
+unique(familiarity_ratings_by_me$token_3)
+unique(familiarity_ratings_by_me$token_4)
+unique(familiarity_ratings_by_me$token_5)
+
+### This code makes all columns numeric:
+familiarity_ratings_by_me$token_1 <- as.numeric(familiarity_ratings_by_me$token_1) #=>Token-Columns
+familiarity_ratings_by_me$token_2 <- as.numeric(familiarity_ratings_by_me$token_2)
+familiarity_ratings_by_me$token_3 <- as.numeric(familiarity_ratings_by_me$token_3)
+familiarity_ratings_by_me$token_4 <- as.numeric(familiarity_ratings_by_me$token_4)
+familiarity_ratings_by_me$token_5 <- as.numeric(familiarity_ratings_by_me$token_5)
+familiarity_ratings_by_me$prob_1 <- as.numeric(familiarity_ratings_by_me$prob_1) #=>Probability-columns
+familiarity_ratings_by_me$prob_2 <- as.numeric(familiarity_ratings_by_me$prob_2)
+familiarity_ratings_by_me$prob_3 <- as.numeric(familiarity_ratings_by_me$prob_3)
+familiarity_ratings_by_me$prob_4 <- as.numeric(familiarity_ratings_by_me$prob_4)
+familiarity_ratings_by_me$prob_5 <- as.numeric(familiarity_ratings_by_me$prob_5)
+
+### this calculates how many tokens ended up being used for the weighted sum
+familiarity_ratings_by_me$n_tokens_used <- rowSums(!is.na(cbind(
+  familiarity_ratings_by_me$token_1,
+  familiarity_ratings_by_me$token_2,
+  familiarity_ratings_by_me$token_3,
+  familiarity_ratings_by_me$token_4,
+  familiarity_ratings_by_me$token_5)))
+
+mean(familiarity_ratings_by_me$n_tokens_used) ## 4.88 tokens were used on average.
+min(familiarity_ratings_by_me$n_tokens_used) # 4 tokens was the minimum
+max(familiarity_ratings_by_me$n_tokens_used) # 5 tokens was the maximum (more is not possible)
+
+### Now we will generate the weighted_sum based on the tokens and their probabilities:
+
+familiarity <- function(familiarity_ratings_by_me) {
+  rowSums(cbind(
+    familiarity_ratings_by_me$token_1 * familiarity_ratings_by_me$prob_1,
+    familiarity_ratings_by_me$token_2 * familiarity_ratings_by_me$prob_2,
+    familiarity_ratings_by_me$token_3 * familiarity_ratings_by_me$prob_3,
+    familiarity_ratings_by_me$token_4 * familiarity_ratings_by_me$prob_4,
+    familiarity_ratings_by_me$token_5 * familiarity_ratings_by_me$prob_5
+  ), na.rm = TRUE)}
+
+### This code will add the output as a column:
+familiarity_ratings_by_me$GPT_FAM <- familiarity(familiarity_ratings_by_me)
+
+familiarity_ratings_by_me$GPT_FAM <- round(familiarity_ratings_by_me$GPT_FAM, 2)
+
+familiarity_ratings_by_me <- familiarity_ratings_by_me %>% select(GPT_FAM)
+``` 
+
+## loading the OpenAI output for the words remaining without GPT concreteness estimate: 
+
+```{r}
+# concreteness
+
+### This reduces the dataframe to only the required columns: ##select for columns, distinct for rows
+concreteness_ratings_by_me <- concreteness_ratings_by_me %>% distinct(custom_id, response.body.choices.0.logprobs.content.0.top_logprobs.0.token, response.body.choices.0.logprobs.content.0.top_logprobs.0.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.1.token, response.body.choices.0.logprobs.content.0.top_logprobs.1.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.2.token, response.body.choices.0.logprobs.content.0.top_logprobs.2.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.3.token, response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.4.token, response.body.choices.0.logprobs.content.0.top_logprobs.4.logprob)
+
+
+### This renames the columns of the dataframe:
+concreteness_ratings_by_me <- concreteness_ratings_by_me %>% rename(word_nr = custom_id, token_1 = response.body.choices.0.logprobs.content.0.top_logprobs.0.token, logprob_1 = response.body.choices.0.logprobs.content.0.top_logprobs.0.logprob, token_2 = response.body.choices.0.logprobs.content.0.top_logprobs.1.token, logprob_2 = response.body.choices.0.logprobs.content.0.top_logprobs.1.logprob, token_3 = response.body.choices.0.logprobs.content.0.top_logprobs.2.token, logprob_3 = response.body.choices.0.logprobs.content.0.top_logprobs.2.logprob, token_4 = response.body.choices.0.logprobs.content.0.top_logprobs.3.token, logprob_4 = response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, token_5 = response.body.choices.0.logprobs.content.0.top_logprobs.4.token, logprob_5 = response.body.choices.0.logprobs.content.0.top_logprobs.4.logprob)
+
+
+### This generates the probabilities for a token based of the logprobability:
+concreteness_ratings_by_me$prob_1 <- exp(concreteness_ratings_by_me$logprob_1)
+concreteness_ratings_by_me$prob_2 <- exp(concreteness_ratings_by_me$logprob_2)
+concreteness_ratings_by_me$prob_3 <- exp(concreteness_ratings_by_me$logprob_3)
+concreteness_ratings_by_me$prob_4 <- exp(concreteness_ratings_by_me$logprob_4)
+concreteness_ratings_by_me$prob_5 <- exp(concreteness_ratings_by_me$logprob_5)
+
+
+### This code makes all token-columns to be characters. This is necessary for the next step.
+concreteness_ratings_by_me$token_1 <- as.character(concreteness_ratings_by_me$token_1)
+concreteness_ratings_by_me$token_2 <- as.character(concreteness_ratings_by_me$token_2)
+concreteness_ratings_by_me$token_3 <- as.character(concreteness_ratings_by_me$token_3)
+concreteness_ratings_by_me$token_4 <- as.character(concreteness_ratings_by_me$token_4)
+concreteness_ratings_by_me$token_5 <- as.character(concreteness_ratings_by_me$token_5)
+
+
+### This will clean the token_columns, since often they do not contain strictly numbers from 1-7 but also written numbers, or number from different languages. Sometimes even numbers outside of the range of 1-7, or words like "Neutral".
+concreteness_ratings_by_me <- concreteness_ratings_by_me %>% mutate(token_3 = recode(token_3, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "NA", "8" = "NA", "۱" = "1", "６" = "6"))
+concreteness_ratings_by_me <- concreteness_ratings_by_me %>% mutate(token_4 = recode(token_4, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "0", "8" = "0", "۱" = "1", "６" = "6"))
+concreteness_ratings_by_me <- concreteness_ratings_by_me %>% mutate(token_5 = recode(token_5, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "0", "8" = "0", "۱" = "1", "６" = "6", "７" = "7"))
+
+concreteness_ratings_by_me <- concreteness_ratings_by_me %>% mutate(token_4 = na_if(token_4, "0"))
+concreteness_ratings_by_me <- concreteness_ratings_by_me %>% mutate(token_5 = na_if(token_5, "0"))
+
+## This code checks which values are found in a given column (best would be only 1-7):
+unique(concreteness_ratings_by_me$token_1)
+unique(concreteness_ratings_by_me$token_2)
+unique(concreteness_ratings_by_me$token_3)
+unique(concreteness_ratings_by_me$token_4)
+unique(concreteness_ratings_by_me$token_5)
+
+### This code makes all columns numeric:
+concreteness_ratings_by_me$token_1 <- as.numeric(concreteness_ratings_by_me$token_1) #=>Token-Columns
+concreteness_ratings_by_me$token_2 <- as.numeric(concreteness_ratings_by_me$token_2)
+concreteness_ratings_by_me$token_3 <- as.numeric(concreteness_ratings_by_me$token_3)
+concreteness_ratings_by_me$token_4 <- as.numeric(concreteness_ratings_by_me$token_4)
+concreteness_ratings_by_me$token_5 <- as.numeric(concreteness_ratings_by_me$token_5)
+concreteness_ratings_by_me$prob_1 <- as.numeric(concreteness_ratings_by_me$prob_1) #=>Probability-columns
+concreteness_ratings_by_me$prob_2 <- as.numeric(concreteness_ratings_by_me$prob_2)
+concreteness_ratings_by_me$prob_3 <- as.numeric(concreteness_ratings_by_me$prob_3)
+concreteness_ratings_by_me$prob_4 <- as.numeric(concreteness_ratings_by_me$prob_4)
+concreteness_ratings_by_me$prob_5 <- as.numeric(concreteness_ratings_by_me$prob_5)
+
+### this calculates how many tokens ended up being used for the weighted sum
+concreteness_ratings_by_me$n_tokens_used <- rowSums(!is.na(cbind(
+  concreteness_ratings_by_me$token_1,
+  concreteness_ratings_by_me$token_2,
+  concreteness_ratings_by_me$token_3,
+  concreteness_ratings_by_me$token_4,
+  concreteness_ratings_by_me$token_5)))
+
+mean(concreteness_ratings_by_me$n_tokens_used) ## 4.99 tokens were used on average.
+min(concreteness_ratings_by_me$n_tokens_used) # 4 tokens was the minimum
+max(concreteness_ratings_by_me$n_tokens_used) # 5 tokens was the maximum (more is not possible)
+
+### Now we will generate the weighted_sum based on the tokens and their probabilities:
+
+concreteness <- function(concreteness_ratings_by_me) {
+  rowSums(cbind(
+    concreteness_ratings_by_me$token_1 * concreteness_ratings_by_me$prob_1,
+    concreteness_ratings_by_me$token_2 * concreteness_ratings_by_me$prob_2,
+    concreteness_ratings_by_me$token_3 * concreteness_ratings_by_me$prob_3,
+    concreteness_ratings_by_me$token_4 * concreteness_ratings_by_me$prob_4,
+    concreteness_ratings_by_me$token_5 * concreteness_ratings_by_me$prob_5
+  ), na.rm = TRUE)}
+
+### This code will add the output as a column:
+concreteness_ratings_by_me$GPT_concr <- concreteness(concreteness_ratings_by_me)
+
+concreteness_ratings_by_me$GPT_concr <- round(concreteness_ratings_by_me$GPT_concr, 2)
+
+concreteness_ratings_by_me <- concreteness_ratings_by_me %>% select(GPT_concr)
+```
+
+## loading the OpenAI output for the words remaining without GPT valence estimate: 
+
+```{r}
+# valence
+
+### This reduces the dataframe to only the required columns: ##select for columns, distinct for rows
+valence_ratings_by_me <- valence_ratings_by_me %>% distinct(custom_id, response.body.choices.0.logprobs.content.0.top_logprobs.0.token, response.body.choices.0.logprobs.content.0.top_logprobs.0.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.1.token, response.body.choices.0.logprobs.content.0.top_logprobs.1.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.2.token, response.body.choices.0.logprobs.content.0.top_logprobs.2.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.3.token, response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.4.token, response.body.choices.0.logprobs.content.0.top_logprobs.4.logprob)
+
+
+### This renames the columns of the dataframe:
+valence_ratings_by_me <- valence_ratings_by_me %>% rename(word_nr = custom_id, token_1 = response.body.choices.0.logprobs.content.0.top_logprobs.0.token, logprob_1 = response.body.choices.0.logprobs.content.0.top_logprobs.0.logprob, token_2 = response.body.choices.0.logprobs.content.0.top_logprobs.1.token, logprob_2 = response.body.choices.0.logprobs.content.0.top_logprobs.1.logprob, token_3 = response.body.choices.0.logprobs.content.0.top_logprobs.2.token, logprob_3 = response.body.choices.0.logprobs.content.0.top_logprobs.2.logprob, token_4 = response.body.choices.0.logprobs.content.0.top_logprobs.3.token, logprob_4 = response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, token_5 = response.body.choices.0.logprobs.content.0.top_logprobs.4.token, logprob_5 = response.body.choices.0.logprobs.content.0.top_logprobs.4.logprob)
+
+
+### This generates the probabilities for a token based of the logprobability:
+valence_ratings_by_me$prob_1 <- exp(valence_ratings_by_me$logprob_1)
+valence_ratings_by_me$prob_2 <- exp(valence_ratings_by_me$logprob_2)
+valence_ratings_by_me$prob_3 <- exp(valence_ratings_by_me$logprob_3)
+valence_ratings_by_me$prob_4 <- exp(valence_ratings_by_me$logprob_4)
+valence_ratings_by_me$prob_5 <- exp(valence_ratings_by_me$logprob_5)
+
+
+### This code makes all token-columns to be characters. This is necessary for the next step.
+valence_ratings_by_me$token_1 <- as.character(valence_ratings_by_me$token_1)
+valence_ratings_by_me$token_2 <- as.character(valence_ratings_by_me$token_2)
+valence_ratings_by_me$token_3 <- as.character(valence_ratings_by_me$token_3)
+valence_ratings_by_me$token_4 <- as.character(valence_ratings_by_me$token_4)
+valence_ratings_by_me$token_5 <- as.character(valence_ratings_by_me$token_5)
+
+
+### This will clean the token_columns, since often they do not contain strictly numbers from 1-7 but also written numbers, or number from different languages. Sometimes even numbers outside of the range of 1-7, or words like "Neutral".
+valence_ratings_by_me <- valence_ratings_by_me %>% mutate(token_3 = recode(token_3, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "NA", "8" = "NA", "۱" = "1", "６" = "6"))
+valence_ratings_by_me <- valence_ratings_by_me %>% mutate(token_4 = recode(token_4, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "0", "8" = "0", "۱" = "1", "６" = "6", " four" = "4", "₂" = "2"))
+valence_ratings_by_me <- valence_ratings_by_me %>% mutate(token_5 = recode(token_5, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "0", "8" = "0", "۱" = "1", "６" = "6", "７" = "7", " four" = "4", " seventh" = "7", " vier" = "4", " sixth" = "6", "Neutral" = "0", "₂" = "2", "۳" = "3", "One" = "1", "۲" = "2"))
+
+valence_ratings_by_me <- valence_ratings_by_me %>% mutate(token_4 = na_if(token_4, "0"))
+valence_ratings_by_me <- valence_ratings_by_me %>% mutate(token_5 = na_if(token_5, "0"))
+
+## This code checks which values are found in a given column (best would be only 1-7):
+unique(valence_ratings_by_me$token_1)
+unique(valence_ratings_by_me$token_2)
+unique(valence_ratings_by_me$token_3)
+unique(valence_ratings_by_me$token_4)
+unique(valence_ratings_by_me$token_5)
+
+### This code makes all columns numeric:
+valence_ratings_by_me$token_1 <- as.numeric(valence_ratings_by_me$token_1) #=>Token-Columns
+valence_ratings_by_me$token_2 <- as.numeric(valence_ratings_by_me$token_2)
+valence_ratings_by_me$token_3 <- as.numeric(valence_ratings_by_me$token_3)
+valence_ratings_by_me$token_4 <- as.numeric(valence_ratings_by_me$token_4)
+valence_ratings_by_me$token_5 <- as.numeric(valence_ratings_by_me$token_5)
+valence_ratings_by_me$prob_1 <- as.numeric(valence_ratings_by_me$prob_1) #=>Probability-columns
+valence_ratings_by_me$prob_2 <- as.numeric(valence_ratings_by_me$prob_2)
+valence_ratings_by_me$prob_3 <- as.numeric(valence_ratings_by_me$prob_3)
+valence_ratings_by_me$prob_4 <- as.numeric(valence_ratings_by_me$prob_4)
+valence_ratings_by_me$prob_5 <- as.numeric(valence_ratings_by_me$prob_5)
+
+### this calculates how many tokens ended up being used for the weighted sum
+valence_ratings_by_me$n_tokens_used <- rowSums(!is.na(cbind(
+  valence_ratings_by_me$token_1,
+  valence_ratings_by_me$token_2,
+  valence_ratings_by_me$token_3,
+  valence_ratings_by_me$token_4,
+  valence_ratings_by_me$token_5)))
+
+mean(valence_ratings_by_me$n_tokens_used) ## 4.98 tokens were used on average.
+min(valence_ratings_by_me$n_tokens_used) # 4 tokens was the minimum
+max(valence_ratings_by_me$n_tokens_used) # 5 tokens was the maximum (more is not possible)
+
+### Now we will generate the weighted_sum based on the tokens and their probabilities:
+
+valence <- function(valence_ratings_by_me) {
+  rowSums(cbind(
+    valence_ratings_by_me$token_1 * valence_ratings_by_me$prob_1,
+    valence_ratings_by_me$token_2 * valence_ratings_by_me$prob_2,
+    valence_ratings_by_me$token_3 * valence_ratings_by_me$prob_3,
+    valence_ratings_by_me$token_4 * valence_ratings_by_me$prob_4,
+    valence_ratings_by_me$token_5 * valence_ratings_by_me$prob_5
+  ), na.rm = TRUE)}
+
+### This code will add the output as a column:
+valence_ratings_by_me$GPT_val <- valence(valence_ratings_by_me)
+
+valence_ratings_by_me$GPT_val <- round(valence_ratings_by_me$GPT_val, 2)
+
+valence_ratings_by_me <- valence_ratings_by_me %>% select(GPT_val)
+```
+
+## loading the OpenAI output for the words remaining without GPT arousal estimate: 
+
+```{r}
+# arousal
+
+### This reduces the dataframe to only the required columns: ##select for columns, distinct for rows
+arousal_ratings_by_me <- arousal_ratings_by_me %>% distinct(custom_id, response.body.choices.0.logprobs.content.0.top_logprobs.0.token, response.body.choices.0.logprobs.content.0.top_logprobs.0.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.1.token, response.body.choices.0.logprobs.content.0.top_logprobs.1.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.2.token, response.body.choices.0.logprobs.content.0.top_logprobs.2.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.3.token, response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, response.body.choices.0.logprobs.content.0.top_logprobs.4.token, response.body.choices.0.logprobs.content.0.top_logprobs.4.logprob)
+
+
+### This renames the columns of the dataframe:
+arousal_ratings_by_me <- arousal_ratings_by_me %>% rename(word_nr = custom_id, token_1 = response.body.choices.0.logprobs.content.0.top_logprobs.0.token, logprob_1 = response.body.choices.0.logprobs.content.0.top_logprobs.0.logprob, token_2 = response.body.choices.0.logprobs.content.0.top_logprobs.1.token, logprob_2 = response.body.choices.0.logprobs.content.0.top_logprobs.1.logprob, token_3 = response.body.choices.0.logprobs.content.0.top_logprobs.2.token, logprob_3 = response.body.choices.0.logprobs.content.0.top_logprobs.2.logprob, token_4 = response.body.choices.0.logprobs.content.0.top_logprobs.3.token, logprob_4 = response.body.choices.0.logprobs.content.0.top_logprobs.3.logprob, token_5 = response.body.choices.0.logprobs.content.0.top_logprobs.4.token, logprob_5 = response.body.choices.0.logprobs.content.0.top_logprobs.4.logprob)
+
+
+### This generates the probabilities for a token based of the logprobability:
+arousal_ratings_by_me$prob_1 <- exp(arousal_ratings_by_me$logprob_1)
+arousal_ratings_by_me$prob_2 <- exp(arousal_ratings_by_me$logprob_2)
+arousal_ratings_by_me$prob_3 <- exp(arousal_ratings_by_me$logprob_3)
+arousal_ratings_by_me$prob_4 <- exp(arousal_ratings_by_me$logprob_4)
+arousal_ratings_by_me$prob_5 <- exp(arousal_ratings_by_me$logprob_5)
+
+
+### This code makes all token-columns to be characters. This is necessary for the next step.
+arousal_ratings_by_me$token_1 <- as.character(arousal_ratings_by_me$token_1)
+arousal_ratings_by_me$token_2 <- as.character(arousal_ratings_by_me$token_2)
+arousal_ratings_by_me$token_3 <- as.character(arousal_ratings_by_me$token_3)
+arousal_ratings_by_me$token_4 <- as.character(arousal_ratings_by_me$token_4)
+arousal_ratings_by_me$token_5 <- as.character(arousal_ratings_by_me$token_5)
+
+
+### This will clean the token_columns, since often they do not contain strictly numbers from 1-7 but also written numbers, or number from different languages. Sometimes even numbers outside of the range of 1-7, or words like "Neutral".
+arousal_ratings_by_me <- arousal_ratings_by_me %>% mutate(token_3 = recode(token_3, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "NA", "8" = "NA", "۱" = "1", "６" = "6"))
+arousal_ratings_by_me <- arousal_ratings_by_me %>% mutate(token_4 = recode(token_4, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "0", "8" = "0", "۱" = "1", "６" = "6"))
+arousal_ratings_by_me <- arousal_ratings_by_me %>% mutate(token_5 = recode(token_5, " six" = "6", " siete" = "7", "five" = "5", "01" = "1", " seven" = "7", "seis" = "6", "七" = "7", "१" = "1", "４" = "4", " five" = "5", " seis" = "6", "１" = "1", "５" = "5", "３" = "3", "２" = "2", " cinco" = "5", " sieben" = "7", " " = "0", "8" = "0", "۱" = "1", "６" = "6", "７" = "7", "۳" = "3", " seventh" = "7", " four" = "4", "四" = "4"))
+
+arousal_ratings_by_me <- arousal_ratings_by_me %>% mutate(token_4 = na_if(token_4, "0"))
+arousal_ratings_by_me <- arousal_ratings_by_me %>% mutate(token_5 = na_if(token_5, "0"))
+
+## This code checks which values are found in a given column (best would be only 1-7):
+unique(arousal_ratings_by_me$token_1)
+unique(arousal_ratings_by_me$token_2)
+unique(arousal_ratings_by_me$token_3)
+unique(arousal_ratings_by_me$token_4)
+unique(arousal_ratings_by_me$token_5)
+
+### This code makes all columns numeric:
+arousal_ratings_by_me$token_1 <- as.numeric(arousal_ratings_by_me$token_1) #=>Token-Columns
+arousal_ratings_by_me$token_2 <- as.numeric(arousal_ratings_by_me$token_2)
+arousal_ratings_by_me$token_3 <- as.numeric(arousal_ratings_by_me$token_3)
+arousal_ratings_by_me$token_4 <- as.numeric(arousal_ratings_by_me$token_4)
+arousal_ratings_by_me$token_5 <- as.numeric(arousal_ratings_by_me$token_5)
+arousal_ratings_by_me$prob_1 <- as.numeric(arousal_ratings_by_me$prob_1) #=>Probability-columns
+arousal_ratings_by_me$prob_2 <- as.numeric(arousal_ratings_by_me$prob_2)
+arousal_ratings_by_me$prob_3 <- as.numeric(arousal_ratings_by_me$prob_3)
+arousal_ratings_by_me$prob_4 <- as.numeric(arousal_ratings_by_me$prob_4)
+arousal_ratings_by_me$prob_5 <- as.numeric(arousal_ratings_by_me$prob_5)
+
+### this calculates how many tokens ended up being used for the weighted sum
+arousal_ratings_by_me$n_tokens_used <- rowSums(!is.na(cbind(
+  arousal_ratings_by_me$token_1,
+  arousal_ratings_by_me$token_2,
+  arousal_ratings_by_me$token_3,
+  arousal_ratings_by_me$token_4,
+  arousal_ratings_by_me$token_5)))
+
+mean(arousal_ratings_by_me$n_tokens_used) ## 5 tokens were used on average.
+min(arousal_ratings_by_me$n_tokens_used) # 5 tokens was the minimum
+max(arousal_ratings_by_me$n_tokens_used) # 5 tokens was the maximum (more is not possible)
+
+### Now we will generate the weighted_sum based on the tokens and their probabilities:
+
+arousal <- function(arousal_ratings_by_me) {
+  rowSums(cbind(
+    arousal_ratings_by_me$token_1 * arousal_ratings_by_me$prob_1,
+    arousal_ratings_by_me$token_2 * arousal_ratings_by_me$prob_2,
+    arousal_ratings_by_me$token_3 * arousal_ratings_by_me$prob_3,
+    arousal_ratings_by_me$token_4 * arousal_ratings_by_me$prob_4,
+    arousal_ratings_by_me$token_5 * arousal_ratings_by_me$prob_5
+  ), na.rm = TRUE)}
+
+### This code will add the output as a column:
+arousal_ratings_by_me$GPT_arou <- arousal(arousal_ratings_by_me)
+
+arousal_ratings_by_me$GPT_arou <- round(arousal_ratings_by_me$GPT_arou, 2)
+
+arousal_ratings_by_me <- arousal_ratings_by_me %>% select(GPT_arou)
+```
+
+## further processing
+
+```{r}
+# age of acquisition
+
+## processing of age of acquisition
+age_acquisition_ratings_by_me <- age_acquisition_ratings_by_me %>% select(word, aoa)
+age_acquisition_ratings_by_me <- age_acquisition_ratings_by_me %>% rename(word_single = word)
+age_acquisition_ratings_by_me <- age_acquisition_ratings_by_me %>% rename(GPT_AoA_ft = aoa)
+
+## further processing
+#familiarity_na_df <- familiarity_na_df %>% select(word_single)
+#familiarity_ratings_by_me <- cbind(familiarity_na_df, familiarity_ratings_by_me)
+ratings_by_me <- cbind(age_acquisition_ratings_by_me, familiarity_ratings_by_me, concreteness_ratings_by_me, valence_ratings_by_me, arousal_ratings_by_me)
+
+## adding the familiarity, concreteness, valence, arousal, and age of acquisiton ratings to the reading_times_data
+reading_times_data <- reading_times_data %>% left_join(ratings_by_me, by = "word_single")
+```
+
+## adding suprisal, entropy and frequency ratings
+
+```{r}
+## processing
+surprisal_and_entropy_scores <- surprisal_and_entropy_scores %>% slice(1:2700)
+frequency_scores <- frequency_scores %>% slice(1:2700)
+
+surprisal_and_entropy_scores <- surprisal_and_entropy_scores %>% select(text_nr, trial_nr, surprisal_2_words_context, entropy_2_words_context)
+frequency_scores <- frequency_scores %>% select(frequency, zipf_frequency)
+
+## combining them to one df
+suprisal_entropy_frequency_scores <- cbind(surprisal_and_entropy_scores, frequency_scores)
+
+## adding them to data
+reading_times_data <- reading_times_data %>% left_join(suprisal_entropy_frequency_scores, by = c("text_nr", "trial_nr"))
+```
+
+## removal of unwanted rows 
+
+```{r}
+## removal of rows containing numbers in word_single
+numbers_in_the_texts = c("17", "1940", "20", "200", "2002", "22", "3000", "40", "900")
+reading_times_data <- reading_times_data %>% filter(!(word_single %in% numbers_in_the_texts))
+
+## removal of rows containing values below 3.5 in the GPT_FAM column
+reading_times_data <- reading_times_data %>% filter(!(GPT_FAM < 3.5))
+
+## removal of rows in which surprisal and entropy is missing values (NA)
+reading_times_data <- reading_times_data %>% filter(!is.na(surprisal_2_words_context))
+```
+
+## creating a dataframe without stopwords:
+
+```{r}
+data_without_stopwords <- reading_times_data %>% anti_join(stopwords_nltk, by = "word_single")
+
+## this creates a csv file with the data still containing stopwords:
+write_csv(reading_times_data, "data_with_stopwords.csv")
+## this creazes a csv file with the data without stopwords:
+write_csv(data_without_stopwords, "data_without_stopwords.csv")
+```
