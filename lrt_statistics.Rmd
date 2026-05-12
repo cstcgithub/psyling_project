@@ -1,0 +1,277 @@
+---
+title: "LRT"
+author: "Christopher"
+date: "2026-05-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#### load packages
+
+```{r}
+library(tidyverse)
+library(lme4)
+library(lmtest)
+library(rempsyc)
+library(flextable)
+library(broom)
+library(report)
+library(effectsize)
+```
+
+#### load data
+
+```{r}
+data <- read.csv("data_with_stopwords.csv")
+```
+
+#### prepare data for models
+
+```{r}
+#### simple coding for categorical predictors:
+## code recommended by Figner et al. (2024) to set zero-to-sum contrast:
+options(contrasts = c("contr.sum", "contr.poly"))
+
+## making sure they are factors:
+data$recording_location <- as.factor(data$recording_location)
+data$colour <- as.factor(data$colour)
+
+#### mean centering of continuous variables:
+## groups the variables that should be mean centered:
+predictors_to_be_centered <- c("GPT_FAM", 
+                               "GPT_val",
+                               "GPT_arou",
+                               "GPT_concr",
+                               "GPT_AoA_ft",
+                               "age",
+                               "reading_speed",
+                               "word_length_single",
+                               "previous_reading_times_log",
+                               "compr_Qs_percent_correct",
+                               "surprisal_2_words_context",
+                               "entropy_2_words_context",
+                               "zipf_frequency")
+
+## performs the mean centering:
+data[paste0(predictors_to_be_centered, "_centered")] <- lapply(data[predictors_to_be_centered], 
+                                                      function(x) as.vector(scale(x, 
+                                                                                  center = TRUE, 
+                                                                                  scale = FALSE)))
+
+#### selecting relevant columns from data to create model_data:
+model_data <- data %>% select(word, ID, text_nr, recording_location, block_nr, trial_nr, word_single, GPT_FAM_centered, GPT_concr_centered, GPT_val_centered, GPT_arou_centered, GPT_AoA_ft_centered, age_centered, word_length_single_centered, previous_reading_times_log_centered, compr_Qs_percent_correct_centered, surprisal_2_words_context_centered, entropy_2_words_context_centered, zipf_frequency_centered, duration)
+
+#### calculating the interaction terms:
+model_data$familiarity_interaction <- model_data$GPT_FAM_centered * model_data$age_centered
+model_data$concreteness_interaction <- model_data$GPT_concr_centered * model_data$age_centered
+model_data$valence_interaction <- model_data$GPT_val_centered * model_data$age_centered
+model_data$arousal_interaction <- model_data$GPT_arou_centered * model_data$age_centered
+model_data$aoa_interaction <- model_data$GPT_AoA_ft_centered * model_data$age_centered
+model_data$surprisal_interaction <- model_data$surprisal_2_words_context_centered * model_data$age_centered
+model_data$entropy_interaction <- model_data$entropy_2_words_context_centered * model_data$age_centered
+model_data$frequency_interaction <- model_data$zipf_frequency_centered * model_data$age_centered
+```
+
+#### model for the research question I
+
+```{r}
+#### complete model for LRT:
+LRT_complete_model_I <- lmer(log(duration) ~ 
+                                      GPT_FAM_centered +
+                                      GPT_concr_centered +
+                                      GPT_val_centered +
+                                      GPT_arou_centered +
+                                      GPT_AoA_ft_centered +
+                                      recording_location +
+                                      age_centered +
+                                      word_length_single_centered +
+                                      block_nr +
+                                      trial_nr +
+                                      (1|ID) +
+                                      (1|text_nr),
+                                      data = model_data,
+                                      REML = FALSE,
+                                      lmerControl(optimizer = "bobyqa"))
+
+
+#### reduced models:
+
+
+# model without familiarity
+model_I_fam <- lmer(log(duration) ~ GPT_concr_centered + GPT_val_centered + GPT_arou_centered + GPT_AoA_ft_centered + recording_location + age_centered + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = FALSE, lmerControl(optimizer = "bobyqa"))
+
+
+# model without concreteness
+model_I_concr <- lmer(log(duration) ~ GPT_FAM_centered + GPT_val_centered + GPT_arou_centered + GPT_AoA_ft_centered + recording_location + age_centered + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = FALSE, lmerControl(optimizer = "bobyqa"))
+
+
+# model without valence
+model_I_val <- lmer(log(duration) ~ GPT_FAM_centered + GPT_concr_centered + GPT_arou_centered + GPT_AoA_ft_centered + recording_location + age_centered + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = FALSE, lmerControl(optimizer = "bobyqa"))
+
+
+# model without arousal
+model_I_arou <- lmer(log(duration) ~ GPT_FAM_centered + GPT_concr_centered + GPT_val_centered + GPT_AoA_ft_centered + recording_location + age_centered + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = FALSE, lmerControl(optimizer = "bobyqa"))
+
+
+# model without age of acquisition
+model_I_aoa <- lmer(log(duration) ~ GPT_FAM_centered + GPT_concr_centered + GPT_val_centered + GPT_arou_centered + recording_location + age_centered + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = FALSE, lmerControl(optimizer = "bobyqa"))
+```
+
+#### likelihood ratio test for research question I
+
+```{r}
+LRT_fam_I <- lrtest(LRT_complete_model_I, model_I_fam)
+LRT_concr_I <- lrtest(LRT_complete_model_I, model_I_concr)
+LRT_val_I <- lrtest(LRT_complete_model_I, model_I_val)
+LRT_arou_I <- lrtest(LRT_complete_model_I, model_I_arou)
+LRT_aoa_I <- lrtest(LRT_complete_model_I, model_I_aoa)
+```
+
+#### table for likelihood ratio test output for research question I
+
+```{r}
+#### setting up a dataframe containing the information
+LRT_I_table <- data.frame(
+  "Predictor removed in LRT"  = c("Familiarity", "Concreteness", "Valence", "Arousal", "Age-ofAcquisition"),
+  "p-Value" = c(LRT_fam_I$`Pr(>Chisq)`[2], LRT_concr_I$`Pr(>Chisq)`[2], LRT_val_I$`Pr(>Chisq)`[2], LRT_arou_I$`Pr(>Chisq)`[2], LRT_aoa_I$`Pr(>Chisq)`[2]),
+  "Chi-Square" = c(LRT_fam_I$Chisq[2], LRT_concr_I$Chisq[2], LRT_val_I$Chisq[2], LRT_arou_I$Chisq[2], LRT_aoa_I$Chisq[2]))
+
+
+#### selecting how many digits the nice_table showcases
+fun <- function(x) {formatC(x, format = "f", digits = 4)} # tables should only show 4 decimals
+
+
+#### setting up the nice_table
+LRT_one_table <- nice_table(
+  LRT_I_table,
+  col.format.custom = 1:7,
+  format.custom = "fun")
+
+
+#### changing the names
+LRT_one_table <- LRT_one_table |>
+  set_header_labels(
+    Predictor.removed.in.LRT = "Predictor removed in LRT",
+    p.Value = "p-Value",
+    Chi.Square = "Chi-Square")
+
+
+print(LRT_one_table)
+save_as_image(table_hypothesis_one, path = "LRT_one_table.png")
+```
+
+#### model for the research question II
+
+```{r}
+## complete model for LRT
+LRT_complete_model_II <- lmer(log(duration) ~ 
+                                      GPT_FAM_centered +
+                                      GPT_concr_centered +
+                                      GPT_val_centered +
+                                      GPT_arou_centered +
+                                      GPT_AoA_ft_centered +
+                                      surprisal_2_words_context_centered +
+                                      entropy_2_words_context_centered +
+                                      zipf_frequency_centered +
+                                      recording_location +
+                                      age_centered +
+                                      word_length_single_centered +
+                                      block_nr +
+                                      trial_nr +
+                                      (1|ID) +
+                                      (1|text_nr),
+                                      data = model_data,
+                                      REML = FALSE,
+                                      lmerControl(optimizer = "bobyqa"))
+
+
+#### reduced models:
+
+
+# model without familiarity
+model_II_fam <- lmer(log(duration) ~ GPT_concr_centered + GPT_val_centered + GPT_arou_centered + GPT_AoA_ft_centered + surprisal_2_words_context_centered + entropy_2_words_context_centered + zipf_frequency_centered + recording_location + age_centered + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = FALSE, lmerControl(optimizer = "bobyqa"))
+
+
+# model without concreteness
+model_II_concr <- lmer(log(duration) ~ GPT_FAM_centered + GPT_val_centered + GPT_arou_centered + GPT_AoA_ft_centered + surprisal_2_words_context_centered + entropy_2_words_context_centered + zipf_frequency_centered + recording_location + age_centered + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = FALSE, lmerControl(optimizer = "bobyqa"))
+
+
+# model without valence
+model_II_val <- lmer(log(duration) ~ GPT_FAM_centered + GPT_concr_centered + GPT_arou_centered + GPT_AoA_ft_centered + surprisal_2_words_context_centered + entropy_2_words_context_centered + zipf_frequency_centered + recording_location + age_centered + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = FALSE, lmerControl(optimizer = "bobyqa"))
+
+
+# model without arousal
+model_II_arou <- lmer(log(duration) ~ GPT_FAM_centered + GPT_concr_centered + GPT_val_centered + GPT_AoA_ft_centered + surprisal_2_words_context_centered + entropy_2_words_context_centered + zipf_frequency_centered + recording_location + age_centered + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = FALSE, lmerControl(optimizer = "bobyqa"))
+
+
+# model without aoa
+model_II_aoa <- lmer(log(duration) ~ GPT_FAM_centered + GPT_concr_centered + GPT_val_centered + GPT_arou_centered + surprisal_2_words_context_centered + entropy_2_words_context_centered + zipf_frequency_centered + recording_location + age_centered + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = FALSE, lmerControl(optimizer = "bobyqa"))
+
+
+# model without surprisal
+model_II_sur <- lmer(log(duration) ~ GPT_FAM_centered + GPT_concr_centered + GPT_val_centered + GPT_arou_centered + GPT_AoA_ft_centered + entropy_2_words_context_centered + zipf_frequency_centered + recording_location + age_centered + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = FALSE, lmerControl(optimizer = "bobyqa"))
+
+
+# model without entropy
+model_II_ent <- lmer(log(duration) ~ GPT_FAM_centered + GPT_concr_centered + GPT_val_centered + GPT_arou_centered + GPT_AoA_ft_centered + surprisal_2_words_context_centered + zipf_frequency_centered + recording_location + age_centered + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = FALSE, lmerControl(optimizer = "bobyqa"))
+
+
+# model without frequency
+model_II_fre <- lmer(log(duration) ~ GPT_FAM_centered + GPT_concr_centered + GPT_val_centered + GPT_arou_centered + GPT_AoA_ft_centered + surprisal_2_words_context_centered + entropy_2_words_context_centered + recording_location + age_centered + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = FALSE, lmerControl(optimizer = "bobyqa"))
+```
+
+
+#### likelihood ratio test for research question I
+
+```{r}
+LRT_fam_II <- lrtest(LRT_complete_model_II, model_II_fam)
+LRT_concr_II <- lrtest(LRT_complete_model_II, model_II_concr)
+LRT_val_II <- lrtest(LRT_complete_model_II, model_II_val)
+LRT_arou_II <- lrtest(LRT_complete_model_II, model_II_arou)
+LRT_aoa_II <- lrtest(LRT_complete_model_II, model_II_aoa)
+LRT_sur_II <- lrtest(LRT_complete_model_II, model_II_sur)
+LRT_ent_II <- lrtest(LRT_complete_model_II, model_II_ent)
+LRT_fre_II <- lrtest(LRT_complete_model_II, model_II_fre)
+```
+
+#### table for likelihood ratio test output for research question II
+
+```{r}
+#### df
+LRT_II_table <- data.frame(
+  "Predictor removed in LRT"  = c("Familiarity", "Concreteness", "Valence", "Arousal", "Age-ofAcquisition", "Surprisal", "Entropy", "Frequency"),
+  "p-Value" = c(LRT_fam_II$`Pr(>Chisq)`[2], LRT_concr_II$`Pr(>Chisq)`[2], LRT_val_II$`Pr(>Chisq)`[2], LRT_arou_II$`Pr(>Chisq)`[2], LRT_aoa_II$`Pr(>Chisq)`[2], LRT_sur_II$`Pr(>Chisq)`[2], LRT_ent_II$`Pr(>Chisq)`[2], LRT_fre_II$`Pr(>Chisq)`[2]),
+  "Chi-Square" = c(LRT_fam_II$Chisq[2], LRT_concr_II$Chisq[2], LRT_val_II$Chisq[2], LRT_arou_II$Chisq[2], LRT_aoa_II$Chisq[2], LRT_sur_II$Chisq[2], LRT_ent_II$Chisq[2], LRT_fre_II$Chisq[2]))
+
+
+#### selecting how many digits the nice_table showcases
+fun <- function(x) {formatC(x, format = "e", digits = 2)} # tables should only show 4 decimals
+
+
+#### setting up the nice_table
+LRT_two_table <- nice_table(
+  LRT_II_table,
+  col.format.custom = 1:7,
+  format.custom = "fun")
+
+
+#### changing the names
+LRT_two_table <- LRT_two_table |>
+  set_header_labels(
+    Predictor.removed.in.LRT = "Predictor removed in LRT",
+    p.Value = "p-Value",
+    Chi.Square = "Chi-Square")
+
+
+print(LRT_two_table)
+#save_as_image(table_hypothesis_one, path = "LRT_one_table.png")
+```
+
+
+
+
+
