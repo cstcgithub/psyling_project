@@ -1,0 +1,535 @@
+---
+title: "R2_partitioning"
+author: "Christopher"
+date: "2026-05-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### load packages
+
+```{r}
+
+```
+
+#### load data
+
+```{r}
+data <- read.csv("data_with_stopwords.csv")
+```
+
+#### prepare data for models
+
+```{r}
+#### simple coding for categorical predictors:
+## code recommended by Figner et al. (2024) to set zero-to-sum contrast:
+options(contrasts = c("contr.sum", "contr.poly"))
+
+## making sure they are factors:
+data$recording_location <- as.factor(data$recording_location)
+data$colour <- as.factor(data$colour)
+
+#### mean centering of continuous variables:
+## groups the variables that should be mean centered:
+predictors_to_be_centered <- c("GPT_FAM", 
+                               "GPT_val",
+                               "GPT_arou",
+                               "GPT_concr",
+                               "GPT_AoA_ft",
+                               "age",
+                               "reading_speed",
+                               "word_length_single",
+                               "previous_reading_times_log",
+                               "compr_Qs_percent_correct",
+                               "surprisal_2_words_context",
+                               "entropy_2_words_context",
+                               "zipf_frequency")
+
+## performs the mean centering:
+data[paste0(predictors_to_be_centered, "_centered")] <- lapply(data[predictors_to_be_centered], 
+                                                      function(x) as.vector(scale(x, 
+                                                                                  center = TRUE, 
+                                                                                  scale = FALSE)))
+
+#### selecting relevant columns from data to create model_data:
+model_data <- data %>% select(word, ID, text_nr, recording_location, block_nr, trial_nr, word_single, GPT_FAM_centered, GPT_concr_centered, GPT_val_centered, GPT_arou_centered, GPT_AoA_ft_centered, age_centered, word_length_single_centered, previous_reading_times_log_centered, compr_Qs_percent_correct_centered, surprisal_2_words_context_centered, entropy_2_words_context_centered, zipf_frequency_centered, duration)
+
+#### calculating the interaction terms:
+model_data$familiarity_interaction <- model_data$GPT_FAM_centered * model_data$age_centered
+model_data$concreteness_interaction <- model_data$GPT_concr_centered * model_data$age_centered
+model_data$valence_interaction <- model_data$GPT_val_centered * model_data$age_centered
+model_data$arousal_interaction <- model_data$GPT_arou_centered * model_data$age_centered
+model_data$aoa_interaction <- model_data$GPT_AoA_ft_centered * model_data$age_centered
+model_data$surprisal_interaction <- model_data$surprisal_2_words_context_centered * model_data$age_centered
+model_data$entropy_interaction <- model_data$entropy_2_words_context_centered * model_data$age_centered
+model_data$frequency_interaction <- model_data$zipf_frequency_centered * model_data$age_centered
+```
+
+#### models for research question I
+
+```{r}
+#### Research Question: Which of the five GPTs (fam, concr, val, arou, aoa) accounts for most variance? Hypothesis: fam
+#### We create one large model containing all five GPTs, and five individual models each containing only one of the five.
+
+#### large model:
+complete_model_hypothesis_I <- lmer(log(duration) ~ 
+                                      GPT_FAM_centered +
+                                      GPT_concr_centered +
+                                      GPT_val_centered +
+                                      GPT_arou_centered +
+                                      GPT_AoA_ft_centered +
+                                      recording_location +
+                                      age_centered +
+                                      word_length_single_centered +
+                                      block_nr +
+                                      trial_nr +
+                                      (1|ID) +
+                                      (1|text_nr),
+                                      data = model_data,
+                                      REML = TRUE,
+                                      lmerControl(optimizer = "bobyqa"))
+
+
+#### individual models:
+# familiarity-only model
+individual_model_hypothesis_I_familiarity <- lmer(log(duration) ~ GPT_FAM_centered + recording_location + age_centered + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = TRUE, lmerControl(optimizer = "bobyqa"))
+
+# concreteness-only model
+individual_model_hypothesis_I_concreteness <- lmer(log(duration) ~ GPT_concr_centered + recording_location + age_centered + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = TRUE, lmerControl(optimizer = "bobyqa"))
+
+# valence-only model
+individual_model_hypothesis_I_valence <- lmer(log(duration) ~ GPT_val_centered + recording_location + age_centered + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = TRUE, lmerControl(optimizer = "bobyqa"))
+
+# arousal-only model
+individual_model_hypothesis_I_arousal <- lmer(log(duration) ~ GPT_arou_centered + recording_location + age_centered + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = TRUE, lmerControl(optimizer = "bobyqa"))
+
+# age-of-acquisition-only model
+individual_model_hypothesis_I_aoa <- lmer(log(duration) ~ GPT_AoA_ft_centered + recording_location + age_centered + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = TRUE, lmerControl(optimizer = "bobyqa"))
+```
+
+#### partitioning of variance for research question I
+
+```{r}
+#### We use PartR2 to calculate the part R2 and inclusive R2.
+
+
+## complete model
+complete_model_hypothesis_I_partR2 <- partR2(complete_model_hypothesis_I, partvars = c("GPT_FAM_centered", "GPT_concr_centered", "GPT_val_centered", "GPT_arou_centered", "GPT_AoA_ft_centered", "recording_location", "age_centered", "word_length_single_centered", "block_nr", "trial_nr"), R2_type = "marginal", CI = 0.95, nboot = 25, max_level = 1)
+
+
+# familiarity-only model
+individual_model_hypothesis_I_familiarity_partR2 <- partR2(individual_model_hypothesis_I_familiarity, partvars = c("GPT_FAM_centered", "recording_location", "age_centered", "word_length_single_centered", "block_nr", "trial_nr"), R2_type = "marginal", CI = 0.95, nboot = 25, max_level = 1)
+
+
+# concreteness-only model
+individual_model_hypothesis_I_concreteness_partR2 <- partR2(individual_model_hypothesis_I_concreteness, partvars = c("GPT_concr_centered", "recording_location", "age_centered", "word_length_single_centered", "block_nr", "trial_nr"), R2_type = "marginal", CI = 0.95, nboot = 25, max_level = 1)
+
+
+# valence-only model
+individual_model_hypothesis_I_valence_partR2 <- partR2(individual_model_hypothesis_I_valence, partvars = c("GPT_val_centered", "recording_location", "age_centered", "word_length_single_centered", "block_nr", "trial_nr"), R2_type = "marginal", CI = 0.95, nboot = 25, max_level = 1)
+
+
+# arousal-only model
+individual_model_hypothesis_I_arousal_partR2 <- partR2(individual_model_hypothesis_I_arousal, partvars = c("GPT_arou_centered", "recording_location", "age_centered", "word_length_single_centered", "block_nr", "trial_nr"), R2_type = "marginal", CI = 0.95, nboot = 25, max_level = 1)
+
+
+# age-of-acquisiton model
+individual_model_hypothesis_I_aoa_partR2 <- partR2(individual_model_hypothesis_I_aoa, partvars = c("GPT_AoA_ft_centered", "recording_location", "age_centered", "word_length_single_centered", "block_nr", "trial_nr"), R2_type = "marginal", CI = 0.95, nboot = 25, max_level = 1)
+
+
+#### We use glmm.hp to calculate the individual marginal R2.
+
+
+## complete model
+complete_model_hypothesis_I_glmm_hp<- glmm.hp(complete_model_hypothesis_I) 
+
+## familiarity-only model
+individual_model_hypothesis_I_familiarity_glmm_hp <- glmm.hp(individual_model_hypothesis_I_familiarity)
+
+## concreteness-only model
+individual_model_hypothesis_I_concreteness_glmm_hp <- glmm.hp(individual_model_hypothesis_I_concreteness)
+
+## valence_only model
+individual_model_hypothesis_I_valence_glmm_hp <- glmm.hp(individual_model_hypothesis_I_valence)
+
+## arousal-only model
+individual_model_hypothesis_I_arousal_glmm_hp <- glmm.hp(individual_model_hypothesis_I_arousal)
+
+## age-of-acqisition-only model
+individual_model_hypothesis_I_aoa_glmm_hp <- glmm.hp(individual_model_hypothesis_I_aoa)
+```
+
+#### table overview for research question I 
+
+```{r}
+#### table research question I
+table_hypothesis_I <- data.frame(
+  "Predictor" = c("Familiarity", "Concreteness", "Valence", "Arousal", "Age-of-Acquisition"),
+  "Part R2" = c(complete_model_hypothesis_I_partR2$R2$estimate[2:6]),
+  "Individual Marginal R2" = c(complete_model_hypothesis_I_glmm_hp$hierarchical.partitioning[1:5,3]),
+    "Part R2_ind" = c(individual_model_hypothesis_I_familiarity_partR2$R2$estimate[2], individual_model_hypothesis_I_concreteness_partR2$R2$estimate[2], individual_model_hypothesis_I_valence_partR2$R2$estimate[2], individual_model_hypothesis_I_arousal_partR2$R2$estimate[2], individual_model_hypothesis_I_aoa_partR2$R2$estimate[2]),
+ "Individual Marginal R2_ind" = c(individual_model_hypothesis_I_familiarity_glmm_hp$hierarchical.partitioning[1, 3], individual_model_hypothesis_I_concreteness_glmm_hp$hierarchical.partitioning[1, 3], individual_model_hypothesis_I_valence_glmm_hp$hierarchical.partitioning[1, 3], individual_model_hypothesis_I_arousal_glmm_hp$hierarchical.partitioning[1, 3], individual_model_hypothesis_I_aoa_glmm_hp$hierarchical.partitioning[1, 3]),
+  "Inclusive R2_ind" = c(individual_model_hypothesis_I_familiarity_partR2$IR2$estimate[1], individual_model_hypothesis_I_concreteness_partR2$IR2$estimate[1], individual_model_hypothesis_I_valence_partR2$IR2$estimate[1], individual_model_hypothesis_I_arousal_partR2$IR2$estimate[1], individual_model_hypothesis_I_aoa_partR2$IR2$estimate[1]))
+
+
+#### selecting how many digits the nice_table showcases
+fun <- function(x) {formatC(x, format = "f", digits = 4)} # tables should only show 4 decimals
+
+#### setting up the nice_table
+table_hypothesis_one <- nice_table(
+  table_hypothesis_I,
+  col.format.custom = 1:7,
+  format.custom = "fun")
+
+
+#### additional head columns
+table_hypothesis_one <- table_hypothesis_one |>
+  set_header_labels(
+    Part.R2 = "Part R2",
+    Individual.Marginal.R2 = "Individual Marginal R2",
+    Inclusive.R2 = "Inclusive R2",
+    Part.R2_ind = "Part R2",
+    Individual.Marginal.R2_ind = "Individual Marginal R2",
+    Inclusive.R2_ind = "Inclusive R2") |>
+  add_header_row(top = TRUE, values = c("","Complete Model",
+                                        "Individual Models", ""),colwidths = c(1,2,2,1))
+print(table_hypothesis_one)
+#save_as_image(table_hypothesis_one, path = "table_hypothesis_one.png")
+```
+
+#### models for hypothesis II
+
+```{r}
+#### complete model containing the GPTs, surprisal, entropy, and freqeuncy:
+complete_model_hypothesis_II <- lmer(log(duration) ~ 
+                                      GPT_FAM_centered +
+                                      GPT_concr_centered +
+                                      GPT_val_centered +
+                                      GPT_arou_centered +
+                                      GPT_AoA_ft_centered +
+                                      surprisal_2_words_context_centered +
+                                      entropy_2_words_context_centered +
+                                      zipf_frequency_centered +
+                                      recording_location +
+                                      age_centered +
+                                      word_length_single_centered +
+                                      block_nr +
+                                      trial_nr +
+                                      (1|ID) +
+                                      (1|text_nr),
+                                      data = model_data,
+                                      REML = TRUE,
+                                      lmerControl(optimizer = "bobyqa"))
+
+#### individual models:
+# for suprisal-only model
+individual_model_hypothesis_II_surprisal <- lmer(log(duration) ~ surprisal_2_words_context_centered + recording_location + age_centered + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = TRUE, lmerControl(optimizer = "bobyqa"))
+
+# for entropy-only model
+individual_model_hypothesis_II_entropy <- lmer(log(duration) ~ entropy_2_words_context_centered + recording_location + age_centered + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = TRUE, lmerControl(optimizer = "bobyqa"))
+
+# for frequency-only model
+individual_model_hypothesis_II_frequency <- lmer(log(duration) ~ zipf_frequency_centered + recording_location + age_centered + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = TRUE, lmerControl(optimizer = "bobyqa"))
+
+```
+
+#### partitioning of variance for research question II
+
+```{r}
+#### We use PartR2 to calculate the part R2 and inclusive R2.
+
+## complete model
+complete_model_hypothesis_II_partR2 <- partR2(complete_model_hypothesis_II, partvars = c("GPT_FAM_centered", "GPT_concr_centered", "GPT_val_centered", "GPT_arou_centered", "GPT_AoA_ft_centered", "surprisal_2_words_context_centered", "entropy_2_words_context_centered", "zipf_frequency_centered", "recording_location", "age_centered", "word_length_single_centered", "block_nr", "trial_nr"), R2_type = "marginal", CI = 0.95, nboot = 25, max_level = 1) 
+
+
+## surprisal-only model
+individual_model_hypothesis_II_surprisal_partR2 <- partR2(individual_model_hypothesis_II_surprisal, partvars = c("surprisal_2_words_context_centered", "recording_location", "age_centered", "word_length_single_centered", "block_nr", "trial_nr"), R2_type = "marginal", CI = 0.95, nboot = 25, max_level = 1)
+
+
+## entropy-only model
+individual_model_hypothesis_II_entropy_partR2 <- partR2(individual_model_hypothesis_II_entropy, partvars = c("entropy_2_words_context_centered", "recording_location", "age_centered", "word_length_single_centered", "block_nr", "trial_nr"), R2_type = "marginal", CI = 0.95, nboot = 25, max_level = 1)
+
+
+## frequency-only model
+individual_model_hypothesis_II_frequency_partR2 <- partR2(individual_model_hypothesis_II_frequency, partvars = c("zipf_frequency_centered", "recording_location", "age_centered", "word_length_single_centered", "block_nr", "trial_nr"), R2_type = "marginal", CI = 0.95, nboot = 25, max_level = 1)
+
+
+#### We use glmm.hp to calculate the individual marginal R2.
+
+
+## complete model
+complete_model_hypothesis_II_glmm_hp <- glmm.hp(complete_model_hypothesis_II)
+
+## surprisal-only model
+individual_model_hypothesis_II_surprisal_glmm_hp <- glmm.hp(individual_model_hypothesis_II_surprisal)
+
+## entropy-only model
+individual_model_hypothesis_II_entropy_glmm_hp <- glmm.hp(individual_model_hypothesis_II_entropy)
+
+## frequency-only model
+individual_model_hypothesis_II_frequency_glmm_hp <- glmm.hp(individual_model_hypothesis_II_frequency)
+```
+
+#### table research question II
+
+```{r}
+table_hypothesis_II <- data.frame(
+  "Predictor" = c("Familiarity", "Concreteness", "Valence", "Arousal", "Age-of-Acquisition", "Surprisal", "Entropy", "Frequency"),
+  "Part R2" = c(complete_model_hypothesis_II_partR2$R2$estimate[2:9]),
+  "Individual Marginal R2" = c(complete_model_hypothesis_II_glmm_hp$hierarchical.partitioning[1:8, "Individual"]),
+    "Part R2_ind" = c(individual_model_hypothesis_I_familiarity_partR2$R2$estimate[2], individual_model_hypothesis_I_concreteness_partR2$R2$estimate[2], individual_model_hypothesis_I_valence_partR2$R2$estimate[2], individual_model_hypothesis_I_arousal_partR2$R2$estimate[2], individual_model_hypothesis_I_aoa_partR2$R2$estimate[2], individual_model_hypothesis_II_surprisal_partR2$R2$estimate[2], individual_model_hypothesis_II_entropy_partR2$R2$estimate[2], individual_model_hypothesis_II_frequency_partR2$R2$estimate[2]),
+    "Individual Marginal R2_ind" = c(individual_model_hypothesis_I_familiarity_glmm_hp$hierarchical.partitioning[1, 3], individual_model_hypothesis_I_concreteness_glmm_hp$hierarchical.partitioning[1, 3], individual_model_hypothesis_I_valence_glmm_hp$hierarchical.partitioning[1, 3], individual_model_hypothesis_I_arousal_glmm_hp$hierarchical.partitioning[1, 3], individual_model_hypothesis_I_aoa_glmm_hp$hierarchical.partitioning[1, 3], individual_model_hypothesis_II_surprisal_glmm_hp$hierarchical.partitioning[1, 3], individual_model_hypothesis_II_entropy_glmm_hp$hierarchical.partitioning[1, 3], individual_model_hypothesis_II_frequency_glmm_hp$hierarchical.partitioning[1, 3]),
+  "Inclusive R2_ind" = c(individual_model_hypothesis_I_familiarity_partR2$IR2$estimate[1], individual_model_hypothesis_I_concreteness_partR2$IR2$estimate[1], individual_model_hypothesis_I_valence_partR2$IR2$estimate[1], individual_model_hypothesis_I_arousal_partR2$IR2$estimate[1], individual_model_hypothesis_I_aoa_partR2$IR2$estimate[1], individual_model_hypothesis_II_surprisal_partR2$IR2$estimate[1], individual_model_hypothesis_II_entropy_partR2$IR2$estimate[1], individual_model_hypothesis_II_frequency_partR2$IR2$estimate[1]))
+
+
+#### selecting how many digits the nice_table showcases
+fun <- function(x) {formatC(x, format = "f", digits = 4)} # tables should only show 4 decimals
+
+#### setting up the nice_table
+table_hypothesis_two <- nice_table(
+  table_hypothesis_II,
+  col.format.custom = 1:9,
+  format.custom = "fun")
+
+
+#### additional head columns
+table_hypothesis_two <- table_hypothesis_two |>
+  set_header_labels(
+    Part.R2 = "Part R2",
+    Individual.Marginal.R2 = "Individual Marginal R2",
+    Inclusive.R2 = "Inclusive R2",
+    Part.R2_ind = "Part R2",
+    Individual.Marginal.R2_ind = "Individual Marginal R2",
+    Inclusive.R2_ind = "Inclusive R2") |>
+  add_header_row(top = TRUE, values = c("","Complete Model",
+                                        "Individual Models", ""),colwidths = c(1,2,2,1))
+print(table_hypothesis_two)
+#save_as_image(table_hypothesis_two, path = "table_hypothesis_two.png")
+```
+
+#### models for research question III
+
+```{r}
+#### first set of models: individual models with only one term and its interaction + baseline fixed and random effects
+
+
+# familiarity-only model without controlling for other key predictors
+individual_model_hypothesis_III_familiarity_interaction <- lmer(log(duration) ~ familiarity_interaction + GPT_FAM_centered + age_centered + recording_location + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = TRUE, lmerControl(optimizer = "bobyqa"))
+
+
+# concreteness-only model without controlling for other key predictors
+individual_model_hypothesis_III_concreteness_interaction <- lmer(log(duration) ~ concreteness_interaction + GPT_concr_centered + age_centered + recording_location + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = TRUE, lmerControl(optimizer = "bobyqa"))
+
+
+# valence-only model without without controlling for other key predictors
+individual_model_hypothesis_III_valence_interaction <- lmer(log(duration) ~ valence_interaction + GPT_val_centered + age_centered + recording_location + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = TRUE, lmerControl(optimizer = "bobyqa"))
+
+
+# arousal-only model without controlling for other key predictors
+individual_model_hypothesis_III_arousal_interaction <- lmer(log(duration) ~ arousal_interaction + GPT_arou_centered + age_centered + recording_location + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = TRUE, lmerControl(optimizer = "bobyqa"))
+
+
+# age-of-acquisition-only model without controlling for other key predictors
+individual_model_hypothesis_III_aoa_interaction <- lmer(log(duration) ~ aoa_interaction + GPT_AoA_ft_centered + age_centered + recording_location + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = TRUE, lmerControl(optimizer = "bobyqa"))
+
+
+# surprisal-only model without controlling for other key predictors
+individual_model_hypothesis_III_surprisal_interaction <- lmer(log(duration) ~ surprisal_interaction + surprisal_2_words_context_centered + age_centered + recording_location + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = TRUE, lmerControl(optimizer = "bobyqa"))
+
+
+# entropy-only model without controlling for other key predictors
+individual_model_hypothesis_III_entropy_interaction <- lmer(log(duration) ~ entropy_interaction + entropy_2_words_context_centered + age_centered + recording_location + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = TRUE, lmerControl(optimizer = "bobyqa"))
+
+
+# frequency-only model without controlling for other key predictors
+individual_model_hypothesis_III_frequency_interaction <- lmer(log(duration) ~ frequency_interaction + zipf_frequency_centered + age_centered + recording_location + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = TRUE, lmerControl(optimizer = "bobyqa"))
+
+
+#### second set of models: additionally the other fixed effects
+
+
+# familiarity model with control for other key predictors
+model_III_fam_int <- lmer(log(duration) ~ familiarity_interaction + GPT_FAM_centered + GPT_concr_centered + GPT_val_centered + GPT_arou_centered + GPT_AoA_ft_centered + surprisal_2_words_context_centered + entropy_2_words_context_centered + zipf_frequency_centered + age_centered + recording_location + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = TRUE, lmerControl(optimizer = "bobyqa"))
+
+
+# concreteness model with control for other key predictors
+model_III_concr_int <- lmer(log(duration) ~ concreteness_interaction + GPT_FAM_centered + GPT_concr_centered + GPT_val_centered + GPT_arou_centered + GPT_AoA_ft_centered + surprisal_2_words_context_centered + entropy_2_words_context_centered + zipf_frequency_centered + age_centered + recording_location + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = TRUE, lmerControl(optimizer = "bobyqa"))
+
+
+# valence model with control for other key predictors
+model_III_val_int <- lmer(log(duration) ~ valence_interaction + GPT_FAM_centered + GPT_concr_centered + GPT_val_centered + GPT_arou_centered + GPT_AoA_ft_centered + surprisal_2_words_context_centered + entropy_2_words_context_centered + zipf_frequency_centered + age_centered + recording_location + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = TRUE, lmerControl(optimizer = "bobyqa"))
+
+
+# arousal model with control for other key predictors
+model_III_arou_int <- lmer(log(duration) ~ arousal_interaction + GPT_FAM_centered + GPT_concr_centered + GPT_val_centered + GPT_arou_centered + GPT_AoA_ft_centered + surprisal_2_words_context_centered + entropy_2_words_context_centered + zipf_frequency_centered + age_centered + recording_location + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = TRUE, lmerControl(optimizer = "bobyqa"))
+
+
+# age-of-acquisition model with control for other key predictors
+model_III_aoa_int <- lmer(log(duration) ~ aoa_interaction + GPT_FAM_centered + GPT_concr_centered + GPT_val_centered + GPT_arou_centered + GPT_AoA_ft_centered + surprisal_2_words_context_centered + entropy_2_words_context_centered + zipf_frequency_centered + age_centered + recording_location + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = TRUE, lmerControl(optimizer = "bobyqa"))
+
+
+# surprisal model with control for other key predictors
+model_III_sur_int <- lmer(log(duration) ~ surprisal_interaction + GPT_FAM_centered + GPT_concr_centered + GPT_val_centered + GPT_arou_centered + GPT_AoA_ft_centered + surprisal_2_words_context_centered + entropy_2_words_context_centered + zipf_frequency_centered + age_centered + recording_location + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = TRUE, lmerControl(optimizer = "bobyqa"))
+
+
+# entropy model with control for other key predictors
+model_III_ent_int <- lmer(log(duration) ~ entropy_interaction + GPT_FAM_centered + GPT_concr_centered + GPT_val_centered + GPT_arou_centered + GPT_AoA_ft_centered + surprisal_2_words_context_centered + entropy_2_words_context_centered + zipf_frequency_centered + age_centered + recording_location + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = TRUE, lmerControl(optimizer = "bobyqa"))
+
+
+# frequency model with control for other key predictors
+model_III_fre_int <- lmer(log(duration) ~ frequency_interaction + GPT_FAM_centered + GPT_concr_centered + GPT_val_centered + GPT_arou_centered + GPT_AoA_ft_centered + surprisal_2_words_context_centered + entropy_2_words_context_centered + zipf_frequency_centered + age_centered + recording_location + word_length_single_centered + block_nr + trial_nr + (1|ID) + (1|text_nr), data = model_data, REML = TRUE, lmerControl(optimizer = "bobyqa"))
+```
+
+#### partitioning of variance for research question III for first set of (smaller) models:
+
+```{r}
+#### We use PartR2 to calculate the part R2 and inclusive R2.
+#### individual models:
+
+
+## familiarity-only model
+individual_model_hypothesis_III_familiarity_interaction_partR2 <- partR2(individual_model_hypothesis_III_familiarity_interaction, partvars = c("familiarity_interaction", "GPT_FAM_centered", "age_centered", "recording_location", "word_length_single_centered", "block_nr", "trial_nr"), R2_type = "marginal", nboot = 25, CI = 0.95, max_level = 1)
+
+
+## concreteness-only model
+individual_model_hypothesis_III_concreteness_interaction_partR2 <- partR2(individual_model_hypothesis_III_concreteness_interaction, partvars = c("concreteness_interaction", "GPT_concr_centered", "age_centered", "recording_location", "word_length_single_centered", "block_nr", "trial_nr"), R2_type = "marginal", nboot = 25, CI = 0.95, max_level = 1)
+
+
+## valence-only model
+individual_model_hypothesis_III_valence_interaction_partR2 <- partR2(individual_model_hypothesis_III_valence_interaction, partvars = c("valence_interaction", "GPT_val_centered", "age_centered", "recording_location", "word_length_single_centered", "block_nr", "trial_nr"), R2_type = "marginal", nboot = 25, CI = 0.95, max_level = 1)
+
+
+## arousal-only model
+individual_model_hypothesis_III_arousal_interaction_partR2 <- partR2(individual_model_hypothesis_III_arousal_interaction, partvars = c("arousal_interaction", "GPT_arou_centered", "age_centered", "recording_location", "word_length_single_centered", "block_nr", "trial_nr"), R2_type = "marginal", nboot = 25, CI = 0.95, max_level = 1)
+
+
+## age-of-acquisition-only model
+individual_model_hypothesis_III_aoa_interaction_partR2 <- partR2(individual_model_hypothesis_III_aoa_interaction, partvars = c("aoa_interaction", "GPT_AoA_ft_centered", "age_centered", "recording_location", "word_length_single_centered", "block_nr", "trial_nr"), R2_type = "marginal", nboot = 25, CI = 0.95, max_level = 1)
+
+
+## surprisal-only model
+individual_model_hypothesis_III_surprisal_interaction_partR2 <- partR2(individual_model_hypothesis_III_surprisal_interaction, partvars = c("surprisal_interaction", "surprisal_2_words_context_centered", "age_centered", "recording_location", "word_length_single_centered", "block_nr", "trial_nr"), R2_type = "marginal", nboot = 25, CI = 0.95, max_level = 1)
+
+
+## entropy-only model
+individual_model_hypothesis_III_entropy_interaction_partR2 <- partR2(individual_model_hypothesis_III_entropy_interaction, partvars = c("entropy_interaction", "entropy_2_words_context_centered", "age_centered", "recording_location", "word_length_single_centered", "block_nr", "trial_nr"), R2_type = "marginal", nboot = 25, CI = 0.95, max_level = 1)
+
+
+## frequency-only model
+individual_model_hypothesis_III_frequency_interaction_partR2 <- partR2(individual_model_hypothesis_III_frequency_interaction, partvars = c("frequency_interaction", "zipf_frequency_centered", "age_centered", "recording_location", "word_length_single_centered", "block_nr", "trial_nr"), R2_type = "marginal", nboot = 25, CI = 0.95, max_level = 1)
+
+
+#### glmm.hp for individual marginal R2
+
+
+# familiarity-only model
+individual_model_hypothesis_III_familiarity_interaction_glmm_hp <- glmm.hp(individual_model_hypothesis_III_familiarity_interaction)
+# concreteness-only model
+individual_model_hypothesis_III_concreteness_interaction_glmm_hp <- glmm.hp(individual_model_hypothesis_III_concreteness_interaction)
+# valence-only model
+individual_model_hypothesis_III_valence_interaction_glmm_hp <- glmm.hp(individual_model_hypothesis_III_valence_interaction)
+# arousal-only model
+individual_model_hypothesis_III_arousal_interaction_glmm_hp <- glmm.hp(individual_model_hypothesis_III_arousal_interaction)
+# age of acquisition-only model
+individual_model_hypothesis_III_aoa_interaction_glmm_hp <- glmm.hp(individual_model_hypothesis_III_aoa_interaction)
+# surprisal-only model
+individual_model_hypothesis_III_surprisal_interaction_glmm_hp <- glmm.hp(individual_model_hypothesis_III_surprisal_interaction)
+# entropy-only model
+individual_model_hypothesis_III_entropy_interaction_glmm_hp <- glmm.hp(individual_model_hypothesis_III_entropy_interaction) 
+# frequency-only model
+individual_model_hypothesis_III_frequency_interaction_glmm_hp <- glmm.hp(individual_model_hypothesis_III_frequency_interaction)
+```
+
+#### partitioning of variance for research question III for larger models controlling for other key predictors:
+
+```{r}
+#### We use PartR2 to calculate the part R2 and inclusive R2.
+
+
+## familiarity model
+model_III_fam_int_partR2 <- partR2(model_III_fam_int, partvars = c("familiarity_interaction", "GPT_FAM_centered", "GPT_concr_centered", "GPT_val_centered", "GPT_arou_centered", "GPT_AoA_ft_centered", "surprisal_2_words_context_centered", "entropy_2_words_context_centered", "zipf_frequency_centered", "age_centered", "recording_location", "word_length_single_centered", "block_nr", "trial_nr"), R2_type = "marginal", nboot = 25, CI = 0.95, max_level = 1)
+
+
+## concreteness model
+model_III_concr_int_partR2 <- partR2(model_III_concr_int, partvars = c("concreteness_interaction", "GPT_FAM_centered", "GPT_concr_centered", "GPT_val_centered", "GPT_arou_centered", "GPT_AoA_ft_centered", "surprisal_2_words_context_centered", "entropy_2_words_context_centered", "zipf_frequency_centered", "age_centered", "recording_location", "word_length_single_centered", "block_nr", "trial_nr"), R2_type = "marginal", nboot = 25, CI = 0.95, max_level = 1)
+
+
+## valence model
+model_III_val_int_partR2 <- partR2(model_III_val_int, partvars = c("valence_interaction", "GPT_FAM_centered", "GPT_concr_centered", "GPT_val_centered", "GPT_arou_centered", "GPT_AoA_ft_centered", "surprisal_2_words_context_centered", "entropy_2_words_context_centered", "zipf_frequency_centered", "age_centered", "recording_location", "word_length_single_centered", "block_nr", "trial_nr"), R2_type = "marginal", nboot = 25, CI = 0.95, max_level = 1)
+
+
+## arousal model
+model_III_arou_int_partR2 <- partR2(model_III_arou_int, partvars = c("arousal_interaction", "GPT_FAM_centered", "GPT_concr_centered", "GPT_val_centered", "GPT_arou_centered", "GPT_AoA_ft_centered", "surprisal_2_words_context_centered", "entropy_2_words_context_centered", "zipf_frequency_centered", "age_centered", "recording_location", "word_length_single_centered", "block_nr", "trial_nr"), R2_type = "marginal", nboot = 25, CI = 0.95, max_level = 1)
+
+
+## age-of-acquisition model
+model_III_aoa_int_partR2 <- partR2(model_III_aoa_int, partvars = c("aoa_interaction", "GPT_FAM_centered", "GPT_concr_centered", "GPT_val_centered", "GPT_arou_centered", "GPT_AoA_ft_centered", "surprisal_2_words_context_centered", "entropy_2_words_context_centered", "zipf_frequency_centered", "age_centered", "recording_location", "word_length_single_centered", "block_nr", "trial_nr"), R2_type = "marginal", nboot = 25, CI = 0.95, max_level = 1)
+
+
+## surprisal model
+model_III_sur_int_partR2 <- partR2(model_III_sur_int, partvars = c("surprisal_interaction", "GPT_FAM_centered", "GPT_concr_centered", "GPT_val_centered", "GPT_arou_centered", "GPT_AoA_ft_centered", "surprisal_2_words_context_centered", "entropy_2_words_context_centered", "zipf_frequency_centered", "age_centered", "recording_location", "word_length_single_centered", "block_nr", "trial_nr"), R2_type = "marginal", nboot = 25, CI = 0.95, max_level = 1)
+
+
+## entropy model
+model_III_ent_int_partR2 <- partR2(model_III_ent_int, partvars = c("entropy_interaction", "GPT_FAM_centered", "GPT_concr_centered", "GPT_val_centered", "GPT_arou_centered", "GPT_AoA_ft_centered", "surprisal_2_words_context_centered", "entropy_2_words_context_centered", "zipf_frequency_centered", "age_centered", "recording_location", "word_length_single_centered", "block_nr", "trial_nr"), R2_type = "marginal", nboot = 25, CI = 0.95, max_level = 1)
+
+
+## frequency model
+model_III_fre_int_partR2 <- partR2(model_III_fre_int, partvars = c("frequency_interaction", "GPT_FAM_centered", "GPT_concr_centered", "GPT_val_centered", "GPT_arou_centered", "GPT_AoA_ft_centered", "surprisal_2_words_context_centered", "entropy_2_words_context_centered", "zipf_frequency_centered", "age_centered", "recording_location", "word_length_single_centered", "block_nr", "trial_nr"), R2_type = "marginal", nboot = 25, CI = 0.95, max_level = 1)
+
+
+#### glmm.hp for individual marginal R2
+
+
+# familiarity-only model
+model_III_fam_int_glmm_hp <- glmm.hp(model_III_fam_int)
+# concreteness-only model
+model_III_concr_int_glmm_hp <- glmm.hp(model_III_concr_int)
+# valence-only model
+model_III_val_int_glmm_hp <- glmm.hp(model_III_val_int)
+# arousal-only model
+model_III_arou_int_glmm_hp <- glmm.hp(model_III_arou_int)
+# age of acquisition-only model
+model_III_aoa_int_glmm_hp <- glmm.hp(model_III_aoa_int)
+# surprisal-only model
+model_III_sur_int_glmm_hp <- glmm.hp(model_III_sur_int)
+# entropy-only model
+model_III_ent_int_glmm_hp <- glmm.hp(model_III_ent_int) 
+# frequency-only model
+model_III_fre_int_glmm_hp <- glmm.hp(model_III_fre_int)
+```
+
+#### table research question III
+
+```{r}
+#### table for individual models
+overview_table_hypothesis_III_individual_models <- data.frame(
+  "Interaction" = c("Familiarity x Age", "Concreteness x Age", "Valence x Age", "Arousal x Age", "Age of Acquisition x Age", "Surprisal x Age", "Entropy x Age", "Frequency x Age"),
+  "Part R2" = c(individual_model_hypothesis_III_familiarity_interaction_partR2$R2$estimate[2], individual_model_hypothesis_III_concreteness_interaction_partR2$R2$estimate[2], individual_model_hypothesis_III_valence_interaction_partR2$R2$estimate[2], individual_model_hypothesis_III_arousal_interaction_partR2$R2$estimate[2], individual_model_hypothesis_III_aoa_interaction_partR2$R2$estimate[2], individual_model_hypothesis_III_surprisal_interaction_partR2$R2$estimate[2], individual_model_hypothesis_III_entropy_interaction_partR2$R2$estimate[2], individual_model_hypothesis_III_frequency_interaction_partR2$R2$estimate[2]),
+  "Individual Marginal R2" = c(individual_model_hypothesis_III_familiarity_interaction_glmm_hp$hierarchical.partitioning[1, "Individual"], individual_model_hypothesis_III_concreteness_interaction_glmm_hp$hierarchical.partitioning[1,"Individual"], individual_model_hypothesis_III_valence_interaction_glmm_hp$hierarchical.partitioning[1,"Individual"], individual_model_hypothesis_III_arousal_interaction_glmm_hp$hierarchical.partitioning[1,"Individual"], individual_model_hypothesis_III_aoa_interaction_glmm_hp$hierarchical.partitioning[1,"Individual"], individual_model_hypothesis_III_surprisal_interaction_glmm_hp$hierarchical.partitioning[1,"Individual"], individual_model_hypothesis_III_entropy_interaction_glmm_hp$hierarchical.partitioning[1,"Individual"], individual_model_hypothesis_III_frequency_interaction_glmm_hp$hierarchical.partitioning[1,"Individual"]),
+  "Inclusive R2" = c(individual_model_hypothesis_III_familiarity_interaction_partR2$IR2$estimate[1], individual_model_hypothesis_III_concreteness_interaction_partR2$IR2$estimate[1], individual_model_hypothesis_III_valence_interaction_partR2$IR2$estimate[1], individual_model_hypothesis_III_arousal_interaction_partR2$IR2$estimate[1], individual_model_hypothesis_III_aoa_interaction_partR2$IR2$estimate[1], individual_model_hypothesis_III_surprisal_interaction_partR2$IR2$estimate[1], individual_model_hypothesis_III_entropy_interaction_partR2$IR2$estimate[1], individual_model_hypothesis_III_frequency_interaction_partR2$IR2$estimate[1]))
+
+#### nice_table
+fun <- function(x) {formatC(x, format = "f", digits = 4)} # tables should only show 4 decimals
+
+#### setting up the nice_table
+table_hypothesis_III <- nice_table(
+  overview_table_hypothesis_III_individual_models,
+  col.format.custom = 1:7,
+  format.custom = "fun")
+
+
+#### additional head columns
+table_hypothesis_III <- table_hypothesis_III |>
+  set_header_labels(
+    Part.R2 = "Part R2",
+    Individual.Marginal.R2 = "Individual Marginal R2",
+    Inclusive.R2 = "Inclusive R2")
+
+print(table_hypothesis_III) ## until now this table is restricted to the individual models
+```
+
+
